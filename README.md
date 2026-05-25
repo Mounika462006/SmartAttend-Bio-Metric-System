@@ -226,4 +226,4 @@ SmartAttend-Bio-Metric-System/
 
 # Author
 
-**Mounika**
+**Mounika Nagarajan**
