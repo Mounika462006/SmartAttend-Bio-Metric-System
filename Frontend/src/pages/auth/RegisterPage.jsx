@@ -5,7 +5,7 @@ import { authAPI, generalAPI } from '../../api/services';
 import toast from 'react-hot-toast';
 
 const STEPS = ['Personal Info', 'Academic Info', 'Account Security'];
-const ACADEMIC_EMAIL_PATTERN = /\.(edu|edu\.in|edu\.com)$/i;
+const ACADEMIC_EMAIL_PATTERN = /(@gmail\.com|\.(edu|edu\.in|edu\.com))$/i;
 
 function getApiErrorMessage(err, fallback) {
   const data = err.response?.data;
@@ -123,7 +123,7 @@ export default function RegisterPage() {
       if (!form.name.trim()) errors.name = 'Full name is required.';
       if (!form.email.includes('@')) errors.email = 'Valid email is required.';
       else if (!ACADEMIC_EMAIL_PATTERN.test(form.email.trim())) {
-        errors.email = 'Email must end with .edu, .edu.in, or .edu.com.';
+        errors.email = 'Email must end with .edu, .edu.in, .edu.com, or @gmail.com.';
       }
       if (!/^[6-9]\d{9}$/.test(form.mobile)) errors.mobile = 'Valid 10-digit Indian mobile number required.';
     }

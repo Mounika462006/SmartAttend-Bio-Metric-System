@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { ShieldCheck, Eye, EyeOff, LogIn, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-const ACADEMIC_EMAIL_PATTERN = /\.(edu|edu\.in|edu\.com)$/i;
+const ACADEMIC_EMAIL_PATTERN = /(@gmail\.com|\.(edu|edu\.in|edu\.com))$/i;
 
 function getApiErrorMessage(err, fallback) {
   const data = err.response?.data;
@@ -36,7 +36,7 @@ export default function LoginPage() {
     setError('');
 
     if ((role === 'student' || role === 'staff') && !ACADEMIC_EMAIL_PATTERN.test(email.trim())) {
-      setError('Student and faculty email must end with .edu, .edu.in, or .edu.com.');
+      setError('Student and faculty email must end with .edu, .edu.in, .edu.com, or @gmail.com.');
       return;
     }
 
