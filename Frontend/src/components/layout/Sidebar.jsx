@@ -81,9 +81,7 @@ export default function Sidebar({ collapsed, setCollapsed }) {
       >
         {/* Logo */}
         <div className="flex items-center gap-3 px-4 h-16 border-b border-white/10 flex-shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
-            <ShieldCheck size={16} className="text-white" />
-          </div>
+          <img src="/logo.png" alt="Logo" className="w-8 h-8 rounded-lg object-contain bg-white flex-shrink-0" />
           {!collapsed && (
             <div className="overflow-hidden">
               <div className="text-white font-bold text-sm leading-tight truncate">SmartAttend</div>

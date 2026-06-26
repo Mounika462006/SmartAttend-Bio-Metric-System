@@ -62,9 +62,7 @@ export default function LoginPage() {
       {/* Left Panel - Branding */}
       <div className="hidden lg:flex lg:w-1/2 flex-col justify-center px-16 text-white">
         <div className="flex items-center gap-3 mb-10">
-          <div className="w-12 h-12 rounded-xl bg-blue-500 flex items-center justify-center">
-            <ShieldCheck size={24} className="text-white" />
-          </div>
+          <img src="/logo.png" alt="SmartAttend Logo" className="w-12 h-12 rounded-xl object-contain bg-white p-1" />
           <div>
             <div className="text-xl font-bold">SmartAttend</div>
             <div className="text-sm text-white/50">Biometric Attendance ERP</div>
@@ -101,9 +99,7 @@ export default function LoginPage() {
           <div className="bg-white rounded-2xl shadow-2xl p-8">
             {/* Mobile logo */}
             <div className="flex items-center gap-2 mb-6 lg:hidden">
-              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
-                <ShieldCheck size={16} className="text-white" />
-              </div>
+              <img src="/logo.png" alt="Logo" className="w-8 h-8 rounded-lg object-contain" />
               <span className="font-bold text-surface-900">SmartAttend</span>
             </div>
 
