@@ -70,13 +70,11 @@ export default function LoginPage() {
         </div>
 
         <h1 className="text-4xl font-bold leading-tight mb-4">
-          Smart Face<br />
-          <span className="text-blue-400">Biometric</span><br />
-          Attendance System
+          Advanced Biometric<br />
+          <span className="text-blue-400">Access</span> Solutions
         </h1>
         <p className="text-white/60 text-lg mb-10 leading-relaxed">
-          Enterprise-grade attendance management with facial recognition,
-          GPS geo-fencing, and real-time analytics for modern institutions.
+          A robust, enterprise-scale workforce management platform powered by AI facial recognition, secure location tracking, and real-time operational insights.
         </p>
 
         <div className="grid grid-cols-3 gap-6">
