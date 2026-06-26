@@ -1,14 +1,6 @@
-const path = require('path');
-const fs = require('fs');
 const db = require('../config/database');
 const { successResponse, errorResponse } = require('../utils/response');
-
-function removeUploadedFile(fileUrl) {
-  if (!fileUrl || !fileUrl.startsWith('/uploads/biometrics/')) return;
-  const filename = path.basename(fileUrl);
-  const filePath = path.join(__dirname, '../uploads/biometrics', filename);
-  fs.promises.unlink(filePath).catch(() => {});
-}
+const { uploadToSupabase, deleteFromSupabase } = require('../utils/supabaseStorage');
 
 /**
  * Register biometric face data
@@ -47,13 +39,31 @@ async function registerBiometric(req, res, next) {
       );
     }
 
-    const faceImageUrl = `/uploads/biometrics/${files.face_image[0].filename}`;
-    const validationImageUrl = `/uploads/biometrics/${files.validation_image[0].filename}`;
+    // Upload files to Supabase Storage
+    const faceImage = files.face_image[0];
+    const faceImageUrl = await uploadToSupabase(
+      faceImage.buffer,
+      faceImage.originalname,
+      'biometrics',
+      faceImage.mimetype
+    );
+
+    const validationImage = files.validation_image[0];
+    const validationImageUrl = await uploadToSupabase(
+      validationImage.buffer,
+      validationImage.originalname,
+      'biometrics',
+      validationImage.mimetype
+    );
 
     // Check for existing biometric entry
-    const [existing] = await db.query('SELECT id FROM biometric_data WHERE student_id = ?', [studentId]);
+    const [existing] = await db.query('SELECT id, face_image_url, validation_image_url FROM biometric_data WHERE student_id = ?', [studentId]);
 
     if (existing.length > 0) {
+      // Delete old files from Supabase
+      if (existing[0].face_image_url) await deleteFromSupabase(existing[0].face_image_url, 'biometrics');
+      if (existing[0].validation_image_url) await deleteFromSupabase(existing[0].validation_image_url, 'biometrics');
+
       await db.query(
         `UPDATE biometric_data
          SET face_descriptor = ?, face_image_url = ?, validation_image_url = ?,
@@ -153,8 +163,9 @@ async function deleteStudentBiometric(req, res, next) {
     await db.query('DELETE FROM biometric_data WHERE student_id = ?', [studentId]);
     await db.query('UPDATE students SET biometric_registered = 0 WHERE id = ?', [studentId]);
 
-    removeUploadedFile(biometrics[0].face_image_url);
-    removeUploadedFile(biometrics[0].validation_image_url);
+    // Delete from Supabase Storage
+    await deleteFromSupabase(biometrics[0].face_image_url, 'biometrics');
+    await deleteFromSupabase(biometrics[0].validation_image_url, 'biometrics');
 
     return successResponse(res, null, 'Biometric data deleted successfully.');
   } catch (err) {

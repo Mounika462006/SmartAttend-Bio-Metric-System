@@ -1,23 +1,9 @@
-const fs = require('fs');
-const path = require('path');
 const multer = require('multer');
-const { v4: uuidv4 } = require('uuid');
 
 const MAX_SIZE = parseInt(process.env.MAX_FILE_SIZE) || 5 * 1024 * 1024; // 5MB
 
-function createStorage(subfolder) {
-  return multer.diskStorage({
-    destination(req, file, cb) {
-      const dest = path.join(__dirname, '../uploads', subfolder);
-      fs.mkdirSync(dest, { recursive: true });
-      cb(null, dest);
-    },
-    filename(req, file, cb) {
-      const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, `${uuidv4()}${ext}`);
-    },
-  });
-}
+// Use memory storage for Serverless / Vercel compatibility
+const storage = multer.memoryStorage();
 
 const biometricFilter = (req, file, cb) => {
   const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
@@ -38,13 +24,13 @@ const leaveFilter = (req, file, cb) => {
 };
 
 const biometricUpload = multer({
-  storage: createStorage('biometrics'),
+  storage,
   limits: { fileSize: MAX_SIZE },
   fileFilter: biometricFilter,
 });
 
 const leaveUpload = multer({
-  storage: createStorage('leaves'),
+  storage,
   limits: { fileSize: MAX_SIZE },
   fileFilter: leaveFilter,
 });

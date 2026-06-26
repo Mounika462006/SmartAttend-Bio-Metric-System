@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { successResponse, errorResponse, paginatedResponse } = require('../utils/response');
+const { uploadToSupabase } = require('../utils/supabaseStorage');
 
 /**
  * Get all leave requests (Staff can filter by department)
@@ -88,7 +89,17 @@ async function applyLeave(req, res, next) {
   try {
     const studentId = req.user.id;
     const { leave_type, from_date, to_date, reason } = req.body;
-    const attachmentUrl = req.file ? `/uploads/leaves/${req.file.filename}` : null;
+    
+    let attachmentUrl = null;
+
+    if (req.file) {
+      attachmentUrl = await uploadToSupabase(
+        req.file.buffer,
+        req.file.originalname,
+        'leaves',
+        req.file.mimetype
+      );
+    }
 
     // Check for overlapping leave
     const [overlap] = await db.query(
@@ -166,7 +177,7 @@ async function reviewLeave(req, res, next) {
           await db.query(
             `INSERT INTO attendance (student_id, attendance_date, status, session, is_manual, marked_by_staff)
              VALUES (?, ?, 'leave', 'Morning', 1, ?)
-             ON DUPLICATE KEY UPDATE status = 'leave'`,
+             ON CONFLICT (student_id, attendance_date, session) DO UPDATE SET status = 'leave'`,
             [leave.student_id, dateStr, staffId]
           );
         }
