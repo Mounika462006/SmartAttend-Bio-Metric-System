@@ -8,9 +8,10 @@ Enterprise-grade college attendance management ERP with face biometric verificat
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | React.js + Tailwind CSS + Framer Motion |
+| Frontend | React.js + Vite + Tailwind CSS + Framer Motion |
 | Backend | Node.js + Express.js |
-| Database | MySQL |
+| Database | Supabase (PostgreSQL) |
+| File Storage | Supabase Storage (Cloud) |
 | Authentication | JWT + bcrypt |
 | Biometrics | face-api.js + WebCamera API |
 | Location Tracking | Browser Geolocation API |
@@ -44,11 +45,13 @@ Before running the project, install:
 
 ## 1. Database Setup
 
-Run the schema file in MySQL:
+Run the schema initialization script using npm:
 
-```sql
-mysql -u root -p < backend/src/database/schema.sql
+```bash
+cd Backend
+npm run init-db
 ```
+*(Requires `DATABASE_URL` in your `.env` file)*
 
 ---
 
@@ -64,18 +67,19 @@ Example:
 
 ```env
 PORT=5000
-DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=your_password
-DB_NAME=smart_attendance_db
-JWT_SECRET=your_secret_key
+DATABASE_URL="postgresql://postgres:[PASSWORD]@db.xxxx.supabase.co:5432/postgres"
+SUPABASE_URL="https://xxxx.supabase.co"
+SUPABASE_ANON_KEY="your-anon-key"
+JWT_SECRET="your_secret_key"
+JWT_REFRESH_SECRET="your_refresh_secret_key"
+ADMIN_EMAIL="admin@college.edu"
+ADMIN_PASSWORD="admin"
 ```
 
 Install dependencies and start backend server:
 
 ```bash
 npm install
-npm run seed
 npm run dev
 ```
 
@@ -108,7 +112,7 @@ http://localhost:5173
 ```bash
 SmartAttend-Bio-Metric-System/
 │
-├── frontend/
+├── Frontend/
 │   ├── public/
 │   ├── src/
 │   │   ├── api/
@@ -123,22 +127,37 @@ SmartAttend-Bio-Metric-System/
 │   ├── package.json
 │   └── vite.config.js
 │
-├── backend/
+├── Backend/
 │   ├── src/
 │   │   ├── config/
 │   │   ├── controllers/
 │   │   ├── database/
 │   │   ├── middleware/
 │   │   ├── routes/
-│   │   ├── uploads/
-│   │   └── utils/
+│   │   ├── utils/
 │   │
 │   ├── package.json
 │   └── .env
 │
+├── api/
+│   └── index.js (Vercel Entry Point)
+├── vercel.json (Vercel config)
 ├── README.md
 └── .gitignore
 ```
+
+---
+
+# Cloud Deployment (Vercel)
+
+This project is configured for a zero-config deployment on Vercel:
+
+1. Import the repository in Vercel.
+2. Leave the **Root Directory** as `/`.
+3. Add the environment variables from your `.env` file.
+4. Click Deploy. 
+
+Vercel will automatically build the React frontend and host the Express backend as a serverless function on `/api`. File uploads are managed by Supabase Storage to prevent ephemeral data loss.
 
 ---
 
