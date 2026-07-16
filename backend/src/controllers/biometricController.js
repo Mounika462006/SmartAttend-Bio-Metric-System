@@ -70,7 +70,7 @@ async function registerBiometric(req, res, next) {
     }
 
     // Mark student as biometric registered
-    await db.query('UPDATE students SET biometric_registered = 1 WHERE id = ?', [studentId]);
+    await db.query('UPDATE students SET biometric_registered = TRUE WHERE id = ?', [studentId]);
 
     return successResponse(res, { biometric_registered: true }, 'Biometric registration completed successfully.');
   } catch (err) {

@@ -118,7 +118,7 @@ async function register(req, res, next) {
     }
 
     // Validate department
-    const [deptCheck] = await db.query('SELECT id FROM departments WHERE id = ? AND is_active = 1', [department_id]);
+    const [deptCheck] = await db.query('SELECT id FROM departments WHERE id = ? AND is_active = TRUE', [department_id]);
     if (!deptCheck.length) {
       return errorResponse(res, 'Selected department is invalid.', 400);
     }
@@ -137,7 +137,7 @@ async function register(req, res, next) {
     );
 
     // Notify admin about new registration
-    const [admins] = await db.query('SELECT id FROM admins WHERE is_active = 1');
+    const [admins] = await db.query('SELECT id FROM admins WHERE is_active = TRUE');
     for (const admin of admins) {
       await db.query(
         `INSERT INTO notifications (user_id, user_role, title, message, type) VALUES (?, 'admin', ?, ?, 'info')`,

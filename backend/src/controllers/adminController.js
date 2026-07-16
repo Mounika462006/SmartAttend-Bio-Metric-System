@@ -211,7 +211,7 @@ async function updateStaff(req, res, next) {
       `UPDATE staff 
        SET name = ?, staff_id = ?, email = ?, mobile = ?, department_id = ?, designation = ?, is_active = ? 
        WHERE id = ?`,
-      [name, staff_id, email, mobile, department_id, designation, is_active ? 1 : 0, id]
+      [name, staff_id, email, mobile, department_id, designation, !!is_active, id]
     );
 
     return successResponse(res, null, 'Staff updated successfully.');
@@ -259,7 +259,7 @@ async function createStudent(req, res, next) {
 
     const [result] = await db.query(
       `INSERT INTO students (student_id, name, email, mobile, password_hash, department_id, branch, year, semester, status, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', 1)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', TRUE)`,
       [student_id, name, email, mobile, passwordHash, department_id, branch, year, semester]
     );
 
@@ -294,7 +294,7 @@ async function updateStudent(req, res, next) {
       `UPDATE students 
        SET name = ?, student_id = ?, email = ?, mobile = ?, department_id = ?, branch = ?, year = ?, semester = ?, status = ?, is_active = ? 
        WHERE id = ?`,
-      [name, student_id, email, mobile, department_id, branch, year, semester, status, is_active ? 1 : 0, id]
+      [name, student_id, email, mobile, department_id, branch, year, semester, status, !!is_active, id]
     );
 
     return successResponse(res, null, 'Student updated successfully.');
@@ -363,7 +363,7 @@ async function deleteHoliday(req, res, next) {
  */
 async function getGeoFencing(req, res, next) {
   try {
-    const [rows] = await db.query('SELECT * FROM geo_fencing_settings WHERE is_active = 1 LIMIT 1');
+    const [rows] = await db.query('SELECT * FROM geo_fencing_settings WHERE is_active = TRUE LIMIT 1');
     return successResponse(res, rows[0] || null, 'Geo-fencing settings fetched.');
   } catch (err) {
     next(err);
@@ -373,7 +373,7 @@ async function getGeoFencing(req, res, next) {
 async function updateGeoFencing(req, res, next) {
   try {
     const { college_name, latitude, longitude, radius_meters } = req.body;
-    const [existing] = await db.query('SELECT id FROM geo_fencing_settings WHERE is_active = 1 LIMIT 1');
+    const [existing] = await db.query('SELECT id FROM geo_fencing_settings WHERE is_active = TRUE LIMIT 1');
 
     if (existing.length) {
       await db.query(
@@ -416,7 +416,7 @@ async function updateAttendanceSettings(req, res, next) {
       }
       await db.query(
         'UPDATE attendance_settings SET session_name=?, start_time=?, end_time=?, grace_minutes=?, is_active=? WHERE id=?',
-        [session_name, start_time, end_time, grace_minutes, is_active ? 1 : 0, id]
+        [session_name, start_time, end_time, grace_minutes, !!is_active, id]
       );
     }
     return successResponse(res, null, 'Attendance settings updated.');
@@ -432,7 +432,7 @@ async function updateAttendanceSettings(req, res, next) {
 async function getWorkingDays(req, res, next) {
   try {
     const [rows] = await db.query(
-      'SELECT * FROM working_days WHERE is_active = 1 ORDER BY created_at DESC LIMIT 1'
+      'SELECT * FROM working_days WHERE is_active = TRUE ORDER BY created_at DESC LIMIT 1'
     );
     if (!rows.length) return successResponse(res, null, 'No working days configuration found.');
     const wd = rows[0];
@@ -468,7 +468,7 @@ async function updateWorkingDays(req, res, next) {
       }
     }
 
-    const [existing] = await db.query('SELECT id FROM working_days WHERE is_active = 1 ORDER BY created_at DESC LIMIT 1');
+    const [existing] = await db.query('SELECT id FROM working_days WHERE is_active = TRUE ORDER BY created_at DESC LIMIT 1');
 
     if (existing.length) {
       await db.query(
@@ -482,7 +482,7 @@ async function updateWorkingDays(req, res, next) {
     } else {
       await db.query(
         `INSERT INTO working_days (academic_year, semester_label, semester_start, semester_end, working_days_json, is_active, created_by)
-         VALUES (?, ?, ?, ?, ?, 1, ?)`,
+         VALUES (?, ?, ?, ?, ?, TRUE, ?)`,
         [academic_year, semester_label || null, semester_start, semester_end,
          JSON.stringify(working_days_json), req.user.id]
       );
@@ -500,8 +500,8 @@ async function updateWorkingDays(req, res, next) {
  */
 async function getDashboardStats(req, res, next) {
   try {
-    const [[students]] = await db.query('SELECT COUNT(*) AS total, SUM(status="pending") AS pending, SUM(status="approved") AS approved FROM students');
-    const [[staff]] = await db.query('SELECT COUNT(*) AS total FROM staff WHERE is_active = 1');
+    const [[students]] = await db.query("SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending, SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved FROM students");
+    const [[staff]] = await db.query('SELECT COUNT(*) AS total FROM staff WHERE is_active = TRUE');
     const [[todayAtt]] = await db.query(
       `SELECT COALESCE(SUM(daily_present), 0) AS total FROM (
          SELECT student_id, LEAST(1.0, SUM(CASE WHEN status = 'present' THEN 1 WHEN status = 'halfday' THEN 0.5 ELSE 0 END)) AS daily_present

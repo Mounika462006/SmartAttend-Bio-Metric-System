@@ -20,7 +20,7 @@ async function startServer() {
     });
   } catch (err) {
     console.error('[Server] Failed to start:', err.message);
-    console.error('[Server] Ensure MySQL is running and .env is configured correctly.');
+    console.error('[Server] Ensure Supabase PostgreSQL is running and .env is configured correctly.');
     process.exit(1);
   }
 }

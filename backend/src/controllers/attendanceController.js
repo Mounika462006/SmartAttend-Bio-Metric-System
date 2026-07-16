@@ -26,7 +26,7 @@ async function markAttendance(req, res, next) {
 
     // 2. Check geo-fencing
     const [geoRows] = await db.query(
-      'SELECT latitude, longitude, radius_meters FROM geo_fencing_settings WHERE is_active = 1 LIMIT 1'
+      'SELECT latitude, longitude, radius_meters FROM geo_fencing_settings WHERE is_active = TRUE LIMIT 1'
     );
     if (!geoRows.length) {
       return errorResponse(res, 'Geo-fencing settings not configured. Please contact admin.', 500);
@@ -116,7 +116,7 @@ async function markAttendance(req, res, next) {
       `INSERT INTO attendance
        (student_id, attendance_date, status, marked_at, verified_by_face, verified_by_location,
         face_match_score, latitude, longitude, device_info, ip_address, session)
-       VALUES (?, ?, ?, NOW(), 1, 1, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, NOW(), TRUE, TRUE, ?, ?, ?, ?, ?, ?)`,
       [studentId, today, statusVal, matchScore, latitude, longitude, req.headers['user-agent'], req.ip, sessionLabel]
     );
 
@@ -155,7 +155,7 @@ async function getAttendanceHistory(req, res, next) {
     const params = [studentId];
 
     if (month && year) {
-      sql += ' AND MONTH(a.attendance_date) = ? AND YEAR(a.attendance_date) = ?';
+      sql += ' AND EXTRACT(MONTH FROM a.attendance_date) = ? AND EXTRACT(YEAR FROM a.attendance_date) = ?';
       params.push(parseInt(month), parseInt(year));
     }
 
@@ -178,7 +178,7 @@ async function getAttendanceStats(req, res, next) {
 
     // Get working days config
     const [wdRows] = await db.query(
-      'SELECT * FROM working_days WHERE is_active = 1 ORDER BY created_at DESC LIMIT 1'
+      'SELECT * FROM working_days WHERE is_active = TRUE ORDER BY created_at DESC LIMIT 1'
     );
 
     // Get total present days (present = 1.0, halfday = 0.5), grouped and capped at 1.0 per calendar day
@@ -194,7 +194,7 @@ async function getAttendanceStats(req, res, next) {
 
     // Get total leave days (approved)
     const [leaveRows] = await db.query(
-      `SELECT COALESCE(SUM(DATEDIFF(to_date, from_date) + 1), 0) AS leave_days
+      `SELECT COALESCE(SUM((to_date - from_date) + 1), 0) AS leave_days
        FROM leave_requests
        WHERE student_id = ? AND status = 'approved'`,
       [studentId]
@@ -274,8 +274,8 @@ async function getDepartmentAttendance(req, res, next) {
           END AS status,
           MAX(marked_at)         AS marked_at,
           MAX(face_match_score)  AS face_match_score,
-          MAX(verified_by_face)  AS verified_by_face,
-          MAX(verified_by_location) AS verified_by_location
+          bool_or(verified_by_face)  AS verified_by_face,
+          bool_or(verified_by_location) AS verified_by_location
         FROM attendance
         WHERE attendance_date = ?
         GROUP BY student_id

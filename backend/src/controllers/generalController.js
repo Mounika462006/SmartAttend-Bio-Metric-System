@@ -33,12 +33,12 @@ async function markAsRead(req, res, next) {
 
     if (notification_ids && notification_ids.length > 0) {
       await db.query(
-        'UPDATE notifications SET is_read = 1 WHERE id IN (?) AND user_id = ? AND user_role = ?',
+        'UPDATE notifications SET is_read = TRUE WHERE id IN (?) AND user_id = ? AND user_role = ?',
         [notification_ids, userId, role]
       );
     } else {
       await db.query(
-        'UPDATE notifications SET is_read = 1 WHERE user_id = ? AND user_role = ?',
+        'UPDATE notifications SET is_read = TRUE WHERE user_id = ? AND user_role = ?',
         [userId, role]
       );
     }
@@ -77,7 +77,7 @@ async function getStudentProfile(req, res, next) {
  */
 async function getDepartments(req, res, next) {
   try {
-    const [rows] = await db.query('SELECT id, name, code FROM departments WHERE is_active = 1 ORDER BY name');
+    const [rows] = await db.query('SELECT id, name, code FROM departments WHERE is_active = TRUE ORDER BY name');
     return successResponse(res, rows, 'Departments fetched.');
   } catch (err) {
     next(err);
@@ -93,7 +93,7 @@ async function getCurrentGeoFencing(req, res, next) {
     const [rows] = await db.query(
       `SELECT college_name, latitude, longitude, radius_meters
        FROM geo_fencing_settings
-       WHERE is_active = 1
+       WHERE is_active = TRUE
        LIMIT 1`
     );
     return successResponse(res, rows[0] || null, 'Geo-fencing settings fetched.');
@@ -133,13 +133,16 @@ async function getStaffDashboard(req, res, next) {
       [deptId]
     );
     const [lowAttendance] = await db.query(
-      `SELECT s.id, s.name, s.student_id,
-              ROUND(SUM(CASE WHEN a.status = 'present' THEN 1 WHEN a.status = 'halfday' THEN 0.5 ELSE 0 END) / COUNT(a.id) * 100, 1) AS percentage
-       FROM students s
-       LEFT JOIN attendance a ON a.student_id = s.id
-       WHERE s.department_id = ? AND s.status = 'approved'
-       GROUP BY s.id, s.name, s.student_id
-       HAVING percentage < 75 OR percentage IS NULL
+      `SELECT id, name, student_id, percentage
+       FROM (
+         SELECT s.id, s.name, s.student_id,
+                ROUND(SUM(CASE WHEN a.status = 'present' THEN 1 WHEN a.status = 'halfday' THEN 0.5 ELSE 0 END) / NULLIF(COUNT(a.id), 0) * 100.0, 1) AS percentage
+         FROM students s
+         LEFT JOIN attendance a ON a.student_id = s.id
+         WHERE s.department_id = ? AND s.status = 'approved'
+         GROUP BY s.id, s.name, s.student_id
+       ) t
+       WHERE percentage < 75 OR percentage IS NULL
        ORDER BY percentage ASC
        LIMIT 10`,
       [deptId]

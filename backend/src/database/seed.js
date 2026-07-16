@@ -1,5 +1,5 @@
 /**
- * Database Seed Script
+ * Database Seed Script for Supabase PostgreSQL
  * Seeds the default admin account with bcrypt hashed password
  * Run: node src/database/seed.js
  */
@@ -17,7 +17,7 @@ async function seedAdmin() {
 
   console.log('[Seed] Checking for existing admin account...');
 
-  const [existing] = await db.query('SELECT id FROM admins WHERE email = ?', [adminEmail]);
+  const [existing] = await db.query('SELECT id FROM admins WHERE email = $1', [adminEmail]);
   if (existing.length > 0) {
     console.log('[Seed] Admin account already exists. Skipping.');
     return;
@@ -26,7 +26,7 @@ async function seedAdmin() {
   const passwordHash = await bcrypt.hash(adminPassword, SALT_ROUNDS);
 
   await db.query(
-    'INSERT INTO admins (name, email, password_hash) VALUES (?, ?, ?)',
+    'INSERT INTO admins (name, email, password_hash) VALUES ($1, $2, $3)',
     [adminName, adminEmail, passwordHash]
   );
 
@@ -40,7 +40,7 @@ async function seedDefaultStaff() {
   const deptId = depts[0].id;
   const staffEmail = 'staff@college.edu';
 
-  const [existing] = await db.query('SELECT id FROM staff WHERE email = ?', [staffEmail]);
+  const [existing] = await db.query('SELECT id FROM staff WHERE email = $1', [staffEmail]);
   if (existing.length > 0) {
     console.log('[Seed] Default staff already exists. Skipping.');
     return;
@@ -48,7 +48,7 @@ async function seedDefaultStaff() {
 
   const passwordHash = await bcrypt.hash('staff123', 12);
   await db.query(
-    'INSERT INTO staff (staff_id, name, email, password_hash, mobile, department_id, designation) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO staff (staff_id, name, email, password_hash, mobile, department_id, designation) VALUES ($1, $2, $3, $4, $5, $6, $7)',
     ['STF001', 'Dr. Priya Sharma', staffEmail, passwordHash, '9876543210', deptId, 'Assistant Professor']
   );
 

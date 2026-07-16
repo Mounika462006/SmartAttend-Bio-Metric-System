@@ -109,7 +109,7 @@ async function applyLeave(req, res, next) {
 
     // Notify staff in department
     const [studentInfo] = await db.query('SELECT name, department_id FROM students WHERE id = ?', [studentId]);
-    const [staffList] = await db.query('SELECT id FROM staff WHERE department_id = ? AND is_active = 1', [studentInfo[0].department_id]);
+    const [staffList] = await db.query('SELECT id FROM staff WHERE department_id = ? AND is_active = TRUE', [studentInfo[0].department_id]);
 
     for (const staff of staffList) {
       await db.query(
@@ -165,8 +165,8 @@ async function reviewLeave(req, res, next) {
         if (!existing.length) {
           await db.query(
             `INSERT INTO attendance (student_id, attendance_date, status, session, is_manual, marked_by_staff)
-             VALUES (?, ?, 'leave', 'Morning', 1, ?)
-             ON DUPLICATE KEY UPDATE status = 'leave'`,
+             VALUES (?, ?, 'leave', 'Morning', TRUE, ?)
+             ON CONFLICT (student_id, attendance_date, session) DO UPDATE SET status = 'leave'`,
             [leave.student_id, dateStr, staffId]
           );
         }
