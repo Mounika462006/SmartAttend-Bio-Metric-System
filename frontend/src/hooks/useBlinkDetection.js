@@ -225,7 +225,7 @@ export function useBlinkDetection() {
         const totalWidth = distLeft + distRight;
         const yawRatio = totalWidth > 0 ? distLeft / totalWidth : 0.5;
 
-        if (yawRatio < 0.38 || yawRatio > 0.62) {
+        if (yawRatio < 0.25 || yawRatio > 0.75) {
           updateError('Please look directly at the camera.');
           updateStatus('Look directly at the camera.');
           setIsFaceValid(false);
@@ -567,7 +567,7 @@ export function useBlinkDetection() {
           const rollAngle = Math.abs(Math.atan2(rightEyeCenter.y - leftEyeCenter.y, rightEyeCenter.x - leftEyeCenter.x) * (180 / Math.PI));
 
           // Enforce straight head pose
-          if (yawRatio < 0.38 || yawRatio > 0.62) {
+          if (yawRatio < 0.25 || yawRatio > 0.75) {
             updateError('Please look directly at the camera.');
             updateStatus('Look directly at the camera.');
             stableSince.current = null;
@@ -575,7 +575,7 @@ export function useBlinkDetection() {
             activeTimeout.current = setTimeout(loop, 40);
             return;
           }
-          if (pitchRatio < 0.15 || pitchRatio > 0.60) {
+          if (pitchRatio < 0.05 || pitchRatio > 1.20) {
             updateError('Please look directly at the camera.');
             updateStatus('Look directly at the camera.');
             stableSince.current = null;
@@ -583,7 +583,7 @@ export function useBlinkDetection() {
             activeTimeout.current = setTimeout(loop, 40);
             return;
           }
-          if (rollAngle > 15) {
+          if (rollAngle > 30) {
             updateError('Please look directly at the camera.');
             updateStatus('Look directly at the camera.');
             stableSince.current = null;
