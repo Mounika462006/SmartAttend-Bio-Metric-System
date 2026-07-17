@@ -158,7 +158,7 @@ export default function BiometricRegister() {
         const distance = faceapi.euclideanDistance(descriptors.first, descriptor);
         const similarity = Math.max(0, Math.round((1 - distance) * 100));
 
-        if (similarity < 50) {
+        if (similarity < 70) {
           throw new Error(`Face mismatch detected. Similarity: ${similarity}%. Both images must be of the same person.`);
         }
 

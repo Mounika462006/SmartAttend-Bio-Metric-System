@@ -1,23 +1,13 @@
-const { getPool } = require('./src/config/database');
+// Temporary test script. Can be used to check general DB connections.
+const db = require('./src/config/database');
 require('dotenv').config();
 
 async function run() {
-  const pool = getPool();
   try {
-    console.log('Testing primary SELECT query...');
-    const [rows] = await pool.query('SELECT id, name, code, category FROM departments WHERE is_active = TRUE ORDER BY name');
-    console.log('Success! Rows returned:', rows.rows.length);
-    console.log('First row sample:', rows.rows[0]);
+    await db.testConnection();
+    console.log('Database connection OK!');
   } catch (err) {
-    console.error('Primary query failed:', err.message);
-    try {
-      console.log('Testing fallback SELECT query...');
-      const [rows] = await pool.query('SELECT id, name, code FROM departments WHERE is_active = TRUE ORDER BY name');
-      console.log('Success! Fallback rows returned:', rows.rows.length);
-      console.log('First fallback row sample:', rows.rows[0]);
-    } catch (fallbackErr) {
-      console.error('Fallback query failed:', fallbackErr.message);
-    }
+    console.error('Connection test failed:', err.message);
   }
   process.exit(0);
 }

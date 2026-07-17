@@ -111,7 +111,7 @@ CREATE TABLE students (
 -- ============================================================
 CREATE TABLE biometric_data (
   id SERIAL PRIMARY KEY,
-  student_id INTEGER NOT NULL UNIQUE REFERENCES students(id) ON DELETE CASCADE,
+  student_id UUID NOT NULL UNIQUE REFERENCES students(id) ON DELETE CASCADE,
   face_descriptor JSONB NOT NULL,
   face_image_url VARCHAR(500) NOT NULL,
   validation_image_url VARCHAR(500),
