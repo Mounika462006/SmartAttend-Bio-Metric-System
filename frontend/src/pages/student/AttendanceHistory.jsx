@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { attendanceAPI } from '../../api/services';
 import { CalendarCheck, CheckCircle, XCircle, FileText, TrendingUp, Download } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, getDay } from 'date-fns';
+import { useAuth } from '../../context/AuthContext';
 
 const STATUS_MAP = {
   present: { label: 'Present', cls: 'badge-success' },
@@ -71,6 +72,7 @@ function CalendarView({ records, currentDate }) {
 }
 
 export default function AttendanceHistory() {
+  const { user } = useAuth();
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
@@ -89,6 +91,43 @@ export default function AttendanceHistory() {
       setStats(s.data.data);
     }).finally(() => setLoading(false));
   }, [month, year]);
+
+  const exportCSV = () => {
+    const headers = [
+      'Student Name',
+      'Register Number',
+      'Department',
+      'Date',
+      'Time',
+      'Status',
+      'Attendance Percentage'
+    ];
+    
+    const rows = records.map(r => {
+      const dateStr = r.attendance_date?.split('T')[0] || r.attendance_date;
+      const timeStr = r.marked_at ? format(new Date(r.marked_at), 'hh:mm a') : 'N/A';
+      return [
+        `"${user?.name || ''}"`,
+        `"${user?.student_id || ''}"`,
+        `"${user?.department_name || ''}"`,
+        `"${dateStr || ''}"`,
+        `"${timeStr}"`,
+        `"${r.status || ''}"`,
+        `"${stats?.attendance_percentage ?? 0}%"`
+      ];
+    });
+
+    const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Attendance_History_${user?.name?.replace(/\s+/g, '_') || 'Student'}_${format(currentDate, 'MMMM_yyyy')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const currentDate = new Date(year, month - 1, 1);
 
@@ -123,7 +162,7 @@ export default function AttendanceHistory() {
           <h1 className="page-title">Attendance History</h1>
           <p className="page-subtitle">Monthly attendance records and calendar view</p>
         </div>
-        <button className="btn-secondary text-sm">
+        <button onClick={exportCSV} disabled={records.length === 0} className="btn-secondary text-sm">
           <Download size={15} /> Export
         </button>
       </div>
