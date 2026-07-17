@@ -1,1 +1,8 @@
 node_modules
+dist
+.env
+backend/.env
+backend/src/uploads/
+backend/uploads/
+*.log
+.DS_Store

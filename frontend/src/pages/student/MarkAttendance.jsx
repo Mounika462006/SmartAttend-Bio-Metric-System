@@ -7,6 +7,7 @@ import {
   ShieldCheck, Navigation, AlertTriangle, RefreshCw
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useBlinkDetection } from '../../hooks/useBlinkDetection';
 
 const MODELS_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
 const DETECTOR_OPTIONS = new faceapi.TinyFaceDetectorOptions({
@@ -74,6 +75,7 @@ export default function MarkAttendance() {
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [cameraRetryKey, setCameraRetryKey] = useState(0);
+  const { livenessStatus, livenessError, startBlinkDetection, resetBlinkDetection } = useBlinkDetection();
   const [steps, setSteps] = useState({
     location: 'pending',
     face: 'pending',
@@ -266,33 +268,23 @@ export default function MarkAttendance() {
   // Step 2+3: Capture face and verify
   const captureAndVerify = useCallback(async () => {
     setError('');
-    
-    // Capture live frame immediately before unmounting webcam or awaiting descriptor
-    const imageSrc = webcamRef.current?.getScreenshot();
-    if (!imageSrc) {
-      setError('Failed to capture image. Ensure camera permissions are granted.');
-      updateStep('face', 'failed');
-      setPhase('failed');
-      return;
-    }
-
-    setPhase('verifying');
     updateStep('face', 'checking');
-
+    
     try {
+      // Blink verification gate
+      const livenessResult = await startBlinkDetection(webcamRef);
+      if (!livenessResult.success) {
+        throw new Error(livenessResult.reason || 'Liveness check failed.');
+      }
+
+      const { imageSrc, descriptor: liveDescriptor } = livenessResult;
+
+      toast.success('Face captured successfully. Verifying identity...');
+      setPhase('verifying');
       // Get stored biometric descriptor
       const { data: bData } = await biometricAPI.getDescriptor();
       const storedDescriptor = new Float32Array(bData.data.face_descriptor);
 
-      const img = await faceapi.fetchImage(imageSrc);
-      const detection = await faceapi
-        .detectSingleFace(img, DETECTOR_OPTIONS)
-        .withFaceLandmarks()
-        .withFaceDescriptor();
-
-      if (!detection) throw new Error('No face detected in captured image. Ensure proper lighting and face visibility.');
-
-      const liveDescriptor = detection.descriptor;
       const distance = faceapi.euclideanDistance(storedDescriptor, liveDescriptor);
       const similarity = Math.max(0, Math.round((1 - distance) * 100));
       setMatchScore(similarity);
@@ -322,9 +314,17 @@ export default function MarkAttendance() {
       updateStep('face', 'failed');
       setPhase('failed');
     }
-  }, [location, distanceInfo]);
+  }, [location, distanceInfo, startBlinkDetection]);
+
+  // Auto-start verification when camera is ready
+  useEffect(() => {
+    if (phase === 'camera' && cameraReady && steps.face === 'pending' && !error) {
+      captureAndVerify();
+    }
+  }, [phase, cameraReady, steps.face, error, captureAndVerify]);
 
   const reset = () => {
+    resetBlinkDetection();
     setPhase('init');
     setSteps({ location: 'pending', face: 'pending', submission: 'pending' });
     setError('');
@@ -383,21 +383,10 @@ export default function MarkAttendance() {
       }
     }
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: 'user'
-        }, 
-        audio: false 
-      });
-      stream.getTracks().forEach(track => track.stop());
-      setCameraEnabled(true);
-      setCameraRetryKey(prev => prev + 1);
-    } catch (err) {
-      handleCameraError(err);
-    }
+    // Enable webcam component directly to let it request stream natively.
+    // This avoids the double getUserMedia lock race condition.
+    setCameraEnabled(true);
+    setCameraRetryKey(prev => prev + 1);
   };
 
   const retryCamera = () => {
@@ -520,47 +509,68 @@ export default function MarkAttendance() {
             </div>
           </div>
 
-          <div className="relative rounded-lg overflow-hidden bg-black aspect-video">
+          <div className="relative rounded-lg bg-white border border-surface-200 p-6 flex flex-col items-center justify-center min-h-[340px]">
             {!cameraEnabled ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
-                <Camera size={36} className="text-white/80" />
-                <p className="text-sm text-white/70">Camera access is required for live face verification.</p>
+              <div className="flex flex-col items-center justify-center gap-3 text-center">
+                <Camera size={36} className="text-surface-400" />
+                <p className="text-sm text-surface-600">Camera access is required for live face verification.</p>
                 <button type="button" onClick={requestCameraAccess} className="btn-primary">
                   <Camera size={15} />
                   Enable Camera
                 </button>
               </div>
             ) : (
-              <>
-                <Webcam
-                  key={cameraRetryKey}
-                  ref={webcamRef}
-                  screenshotFormat="image/jpeg"
-                  screenshotQuality={0.95}
-                  forceScreenshotSourceSize
-                  onUserMedia={handleCameraReady}
-                  onUserMediaError={handleCameraError}
-                  className="w-full h-full object-cover"
-                  videoConstraints={CAMERA_CONSTRAINTS}
-                  mirrored
-                />
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className={`w-48 h-56 border-2 rounded-full transition-colors ${faceDetected ? 'border-green-400' : 'border-white/50'}`} />
+              <div className="flex flex-col items-center justify-center w-full gap-4">
+                {/* Dynamic liveness instruction displayed above the oval */}
+                {livenessStatus && !livenessError && (
+                  <div className="bg-blue-600 text-white font-semibold text-xs px-5 py-2 rounded-full shadow-sm animate-pulse text-center whitespace-nowrap">
+                    {livenessStatus}
+                  </div>
+                )}
+
+                {/* Dynamic liveness error displayed above the oval */}
+                {livenessError && (
+                  <div className="bg-red-50 border border-red-200 text-red-700 font-semibold text-xs px-4 py-2 rounded-lg shadow-sm text-center max-w-sm leading-tight">
+                    {livenessError}
+                  </div>
+                )}
+
+                <div className="w-60 h-72 rounded-[50%] overflow-hidden relative border-2 border-surface-300 bg-surface-50 shadow-md flex items-center justify-center">
+                  <Webcam
+                    key={cameraRetryKey}
+                    ref={webcamRef}
+                    screenshotFormat="image/jpeg"
+                    screenshotQuality={0.95}
+                    forceScreenshotSourceSize
+                    onUserMedia={handleCameraReady}
+                    onUserMediaError={handleCameraError}
+                    className="w-full h-full object-cover"
+                    videoConstraints={CAMERA_CONSTRAINTS}
+                    mirrored
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className={`w-[85%] h-[85%] border border-dashed rounded-[50%] transition-colors ${faceDetected ? 'border-green-400' : 'border-white/50'}`} />
+                  </div>
+
+                  {faceDetected && (
+                    <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-green-500/90 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-sm z-10">
+                      Face Locked
+                    </div>
+                  )}
                 </div>
-              </>
+              </div>
             )}
           </div>
 
-          <button
-            onClick={captureAndVerify}
-            disabled={!cameraReady}
-            className="btn-primary w-full justify-center py-3"
-          >
-            <Camera size={16} />
-            Capture & Verify Face
-          </button>
-          {!cameraReady && (
-            <button type="button" onClick={retryCamera} className="btn-secondary w-full justify-center">
+          {cameraReady ? (
+            <button
+              disabled
+              className="btn-primary w-full justify-center bg-blue-500/80 cursor-not-allowed opacity-90 py-3"
+            >
+              <Loader size={16} className="animate-spin mr-1.5" /> Auto Verifying on Blink...
+            </button>
+          ) : (
+            <button type="button" onClick={retryCamera} className="btn-secondary w-full justify-center py-3">
               <RefreshCw size={15} />
               Retry Camera
             </button>

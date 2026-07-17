@@ -59,7 +59,7 @@ export const adminAPI = {
 };
 
 export const generalAPI = {
-  getDepartments: () => api.get('/departments'),
+  getDepartments: (config) => api.get('/departments', config),
   getCampusGeoFence: () => api.get('/geo-fencing/current'),
   getNotifications: () => api.get('/notifications'),
   markNotificationsRead: (ids) => api.patch('/notifications/read', { notification_ids: ids }),

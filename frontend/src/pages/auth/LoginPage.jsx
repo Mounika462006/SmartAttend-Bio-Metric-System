@@ -51,7 +51,8 @@ export default function LoginPage() {
       };
       navigate(redirectMap[role]);
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Login failed. Please try again.'));
+      const errMsg = err.response?.data?.message || 'Login failed. Please try again.';
+      setError(errMsg);
     } finally {
       setLoading(false);
     }

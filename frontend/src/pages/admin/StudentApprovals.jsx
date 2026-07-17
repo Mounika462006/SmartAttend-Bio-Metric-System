@@ -7,68 +7,22 @@ import {
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 
-const BRANCHES_BY_DEPT = {
-  'CSE': [
-    'Cyber Security',
-    'Artificial Intelligence',
-    'Data Science',
-    'Internet of Things (IoT)'
-  ],
-  'IT': [
-    'Cloud Computing',
-    'Full Stack Development',
-    'Networking',
-    'Software Engineering'
-  ],
-  'ECE': [
-    'VLSI Design',
-    'Embedded Systems',
-    'Communication Systems',
-    'Robotics'
-  ],
-  'EEE': [
-    'Power Systems',
-    'Electrical Machines',
-    'Renewable Energy',
-    'Control Systems'
-  ],
-  'MECH': [
-    'Automobile Engineering',
-    'Robotics and Automation',
-    'Manufacturing Engineering',
-    'Thermal Engineering'
-  ],
-  'CIVIL': [
-    'Structural Engineering',
-    'Construction Engineering',
-    'Environmental Engineering',
-    'Transportation Engineering'
-  ],
-  'AIDS': [
-    'Machine Learning',
-    'Deep Learning',
-    'Data Analytics',
-    'Business Intelligence'
-  ],
-  'AI & DS': [
-    'Machine Learning',
-    'Deep Learning',
-    'Data Analytics',
-    'Business Intelligence'
-  ],
-  'BT': [
-    'Genetic Engineering',
-    'Bioinformatics',
-    'Microbiology',
-    'Bioprocess Engineering'
-  ],
-  'CHEM': [
-    'Petroleum Engineering',
-    'Process Engineering',
-    'Polymer Technology',
-    'Food Technology'
-  ]
-};
+const DEGREE_PROGRAMS = [
+  'B.E. (Bachelor of Engineering)',
+  'B.Tech. (Bachelor of Technology)',
+  'B.Sc. (Bachelor of Science)',
+  'B.Com. (Bachelor of Commerce)',
+  'B.B.A. (Bachelor of Business Administration)',
+  'B.C.A. (Bachelor of Computer Applications)',
+  'M.E. (Master of Engineering)',
+  'M.Tech. (Master of Technology)',
+  'M.Sc. (Master of Science)',
+  'M.Com. (Master of Commerce)',
+  'M.B.A. (Master of Business Administration)',
+  'M.C.A. (Master of Computer Applications)',
+  'Diploma',
+  'Ph.D.'
+];
 
 export default function StudentApprovals() {
   const [students, setStudents] = useState([]);
@@ -119,29 +73,12 @@ export default function StudentApprovals() {
     }
   };
 
-  const getBranchesForDeptId = (deptId) => {
-    const dept = departments.find(d => String(d.id) === String(deptId));
-    return BRANCHES_BY_DEPT[dept?.code] || [];
-  };
-
   const handleAddFormChange = (key, value) => {
-    setAddForm(prev => {
-      const next = { ...prev, [key]: value };
-      if (key === 'department_id') {
-        next.branch = ''; // Reset branch when department changes
-      }
-      return next;
-    });
+    setAddForm(prev => ({ ...prev, [key]: value }));
   };
 
   const handleEditFormChange = (key, value) => {
-    setEditForm(prev => {
-      const next = { ...prev, [key]: value };
-      if (key === 'department_id') {
-        next.branch = ''; // Reset branch when department changes
-      }
-      return next;
-    });
+    setEditForm(prev => ({ ...prev, [key]: value }));
   };
 
   const handleAddStudentSubmit = async (e) => {
@@ -150,8 +87,8 @@ export default function StudentApprovals() {
     try {
       const payload = {
         ...addForm,
-        department_id: parseInt(addForm.department_id),
-        year: parseInt(addForm.year),
+        department_id: addForm.department_id,
+        year: parseInt(addForm.year) || null,
         semester: parseInt(addForm.semester),
       };
       await adminAPI.createStudent(payload);
@@ -179,7 +116,7 @@ export default function StudentApprovals() {
       mobile: student.mobile || '',
       department_id: String(departments.find(d => d.name === student.department)?.id || ''),
       branch: student.branch || '',
-      year: String(student.year),
+      year: String(student.year || ''),
       semester: String(student.semester),
       status: student.status,
       is_active: student.is_active === 1 || student.is_active === true,
@@ -192,8 +129,8 @@ export default function StudentApprovals() {
     try {
       const payload = {
         ...editForm,
-        department_id: parseInt(editForm.department_id),
-        year: parseInt(editForm.year),
+        department_id: editForm.department_id,
+        year: parseInt(editForm.year) || null,
         semester: parseInt(editForm.semester),
       };
       await adminAPI.updateStudent(editStudent.id, payload);
@@ -336,12 +273,11 @@ export default function StudentApprovals() {
                 </select>
               </div>
               <div>
-                <label className="form-label">Branch / Specialization</label>
+                <label className="form-label">Degree Program</label>
                 <select required className="form-input"
-                  value={addForm.branch} onChange={e => handleAddFormChange('branch', e.target.value)}
-                  disabled={!addForm.department_id}>
-                  <option value="">Select branch</option>
-                  {getBranchesForDeptId(addForm.department_id).map(b => <option key={b} value={b}>{b}</option>)}
+                  value={addForm.branch} onChange={e => handleAddFormChange('branch', e.target.value)}>
+                  <option value="">Select Degree Program</option>
+                  {DEGREE_PROGRAMS.map(prog => <option key={prog} value={prog}>{prog}</option>)}
                 </select>
               </div>
             </div>
@@ -557,11 +493,11 @@ export default function StudentApprovals() {
                   </select>
                 </div>
                 <div>
-                  <label className="form-label">Branch / Specialization</label>
+                  <label className="form-label">Degree Program</label>
                   <select required className="form-input"
                     value={editForm.branch} onChange={e => handleEditFormChange('branch', e.target.value)}>
-                    <option value="">Select branch</option>
-                    {getBranchesForDeptId(editForm.department_id).map(b => <option key={b} value={b}>{b}</option>)}
+                    <option value="">Select Degree Program</option>
+                    {DEGREE_PROGRAMS.map(prog => <option key={prog} value={prog}>{prog}</option>)}
                   </select>
                 </div>
               </div>

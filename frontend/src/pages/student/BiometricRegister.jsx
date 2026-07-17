@@ -9,6 +9,7 @@ import {
   AlertTriangle, User, Loader
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useBlinkDetection } from '../../hooks/useBlinkDetection';
 
 const MODELS_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
 const DETECTOR_OPTIONS = new faceapi.TinyFaceDetectorOptions({
@@ -42,6 +43,7 @@ export default function BiometricRegister() {
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [cameraRetryKey, setCameraRetryKey] = useState(0);
+  const { livenessStatus, livenessError, isFaceValid, startFaceValidation, validateCaptureQuality, resetBlinkDetection } = useBlinkDetection();
   const detectionInterval = useRef(null);
 
   // Check if already registered (skip if we just completed registration and are at step 4 success page)
@@ -103,52 +105,6 @@ export default function BiometricRegister() {
     return () => clearInterval(detectionInterval.current);
   }, [modelsLoaded, cameraReady, step]);
 
-  const captureAndProcess = useCallback(async (captureStep) => {
-    setError('');
-    setLoading(true);
-    try {
-      const imageSrc = webcamRef.current.getScreenshot();
-      if (!imageSrc) throw new Error('Failed to capture image. Ensure camera is active.');
-
-      // Detect face
-      const img = await faceapi.fetchImage(imageSrc);
-      const detection = await faceapi
-        .detectSingleFace(img, DETECTOR_OPTIONS)
-        .withFaceLandmarks()
-        .withFaceDescriptor();
-
-      if (!detection) throw new Error('No face detected. Please ensure your face is clearly visible and well-lit.');
-
-      const descriptor = Array.from(detection.descriptor);
-
-      if (captureStep === 1) {
-        setCapturedImages(prev => ({ ...prev, first: imageSrc }));
-        setDescriptors(prev => ({ ...prev, first: descriptor }));
-        setStep(2);
-        toast.success('First image captured. Now slightly turn your head.');
-      } else if (captureStep === 2) {
-        // Compare with first descriptor
-        const distance = faceapi.euclideanDistance(descriptors.first, descriptor);
-        const similarity = Math.max(0, Math.round((1 - distance) * 100));
-
-        if (similarity < 50) {
-          throw new Error(`Face mismatch detected. Similarity: ${similarity}%. Both images must be of the same person.`);
-        }
-
-        setCapturedImages(prev => ({ ...prev, second: imageSrc }));
-        setDescriptors(prev => ({ ...prev, second: descriptor }));
-        setStep(3);
-
-        // Upload to backend
-        await submitBiometric(capturedImages.first, imageSrc, descriptors.first, similarity);
-      }
-    } catch (err) {
-      setError(err.message || 'An error occurred during face capture. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, [descriptors, capturedImages, submitBiometric]);
-
   const submitBiometric = useCallback(async (firstImg, secondImg, descriptor, similarity) => {
     setLoading(true);
     try {
@@ -180,7 +136,61 @@ export default function BiometricRegister() {
     }
   }, [updateUser]);
 
+  const captureAndProcess = useCallback(async (captureStep) => {
+    setError('');
+    setLoading(true);
+    try {
+      const imageSrc = webcamRef.current?.getScreenshot();
+      if (!imageSrc) throw new Error('Failed to capture image. Ensure camera is active.');
+
+      // Quality validation runs on the manually captured screenshot
+      const descriptor = await validateCaptureQuality(imageSrc);
+
+      if (captureStep === 1) {
+        setCapturedImages(prev => ({ ...prev, first: imageSrc }));
+        setDescriptors(prev => ({ ...prev, first: descriptor }));
+        toast.success('Face captured successfully. Preparing the next verification step...');
+        
+        await new Promise(r => setTimeout(r, 1500));
+        setStep(2);
+      } else if (captureStep === 2) {
+        // Compare with first descriptor
+        const distance = faceapi.euclideanDistance(descriptors.first, descriptor);
+        const similarity = Math.max(0, Math.round((1 - distance) * 100));
+
+        if (similarity < 50) {
+          throw new Error(`Face mismatch detected. Similarity: ${similarity}%. Both images must be of the same person.`);
+        }
+
+        setCapturedImages(prev => ({ ...prev, second: imageSrc }));
+        setDescriptors(prev => ({ ...prev, second: descriptor }));
+        toast.success('Face captured successfully. Submitting biometric data...');
+        
+        await new Promise(r => setTimeout(r, 1000));
+        setStep(3);
+
+        // Upload to backend
+        await submitBiometric(capturedImages.first, imageSrc, descriptors.first, similarity);
+      }
+    } catch (err) {
+      setError(err.message || 'An error occurred during face capture. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, [descriptors, capturedImages, submitBiometric, validateCaptureQuality]);
+
+  // Start face validation loop automatically when camera is ready
+  useEffect(() => {
+    if (cameraReady && cameraEnabled && (step === 1 || step === 2)) {
+      const stopValidation = startFaceValidation(webcamRef);
+      return () => {
+        if (stopValidation) stopValidation();
+      };
+    }
+  }, [cameraReady, cameraEnabled, step, startFaceValidation]);
+
   const reset = () => {
+    resetBlinkDetection();
     setStep(1);
     setCapturedImages({ first: null, second: null });
     setDescriptors({ first: null, second: null });
@@ -236,21 +246,10 @@ export default function BiometricRegister() {
       }
     }
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: 'user'
-        }, 
-        audio: false 
-      });
-      stream.getTracks().forEach(track => track.stop());
-      setCameraEnabled(true);
-      setCameraRetryKey(prev => prev + 1);
-    } catch (err) {
-      handleCameraError(err);
-    }
+    // Enable webcam component directly to let it request stream natively.
+    // This avoids the double getUserMedia lock race condition.
+    setCameraEnabled(true);
+    setCameraRetryKey(prev => prev + 1);
   };
 
   const retryCamera = () => {
@@ -321,39 +320,56 @@ export default function BiometricRegister() {
               </div>
             )}
 
-            <div className="relative rounded-lg overflow-hidden bg-black aspect-video">
+            <div className="relative rounded-lg bg-white border border-surface-200 p-6 flex flex-col items-center justify-center min-h-[340px]">
               {!cameraEnabled ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
-                  <Camera size={36} className="text-white/80" />
-                  <p className="text-sm text-white/70">Camera access is required for live biometric registration.</p>
+                <div className="flex flex-col items-center justify-center gap-3 text-center">
+                  <Camera size={36} className="text-surface-400" />
+                  <p className="text-sm text-surface-600">Camera access is required for live biometric registration.</p>
                   <button type="button" onClick={requestCameraAccess} className="btn-primary">
                     <Camera size={15} />
                     Enable Camera
                   </button>
                 </div>
               ) : (
-                <>
-                  <Webcam
-                    key={cameraRetryKey}
-                    ref={webcamRef}
-                    screenshotFormat="image/jpeg"
-                    screenshotQuality={0.95}
-                    forceScreenshotSourceSize
-                    onUserMedia={handleCameraReady}
-                    onUserMediaError={handleCameraError}
-                    className="w-full h-full object-cover"
-                    videoConstraints={CAMERA_CONSTRAINTS}
-                    mirrored
-                  />
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="w-48 h-56 border-2 border-white/60 rounded-full" />
-                  </div>
-                  {faceDetected && (
-                    <div className="absolute top-3 left-3 bg-green-500/90 text-white text-xs px-2 py-1 rounded-md">
-                      Face Locked
+                <div className="flex flex-col items-center justify-center w-full gap-4">
+                  {/* Dynamic liveness instruction displayed above the oval */}
+                  {livenessStatus && !livenessError && (
+                    <div className="bg-blue-600 text-white font-semibold text-xs px-5 py-2 rounded-full shadow-sm animate-pulse text-center whitespace-nowrap">
+                      {livenessStatus}
                     </div>
                   )}
-                </>
+
+                  {/* Dynamic liveness error displayed above the oval */}
+                  {livenessError && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 font-semibold text-xs px-4 py-2 rounded-lg shadow-sm text-center max-w-sm leading-tight">
+                      {livenessError}
+                    </div>
+                  )}
+
+                  <div className="w-60 h-72 rounded-[50%] overflow-hidden relative border-2 border-surface-300 bg-surface-50 shadow-md flex items-center justify-center">
+                    <Webcam
+                      key={cameraRetryKey}
+                      ref={webcamRef}
+                      screenshotFormat="image/jpeg"
+                      screenshotQuality={0.95}
+                      forceScreenshotSourceSize
+                      onUserMedia={handleCameraReady}
+                      onUserMediaError={handleCameraError}
+                      className="w-full h-full object-cover"
+                      videoConstraints={CAMERA_CONSTRAINTS}
+                      mirrored
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="w-[85%] h-[85%] border border-dashed border-white/50 rounded-[50%]" />
+                    </div>
+                    
+                    {faceDetected && (
+                      <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-green-500/90 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-sm z-10">
+                        Face Locked
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
 
@@ -367,26 +383,28 @@ export default function BiometricRegister() {
 
             <div className="flex gap-3">
               {!cameraReady && (
-                <button type="button" onClick={retryCamera} className="btn-secondary flex-1">
+                <button type="button" onClick={retryCamera} className="btn-secondary flex-1 justify-center">
                   <RefreshCw size={15} /> Retry Camera
                 </button>
               )}
               {step === 2 && (
-                <button onClick={reset} className="btn-secondary flex-1">
+                <button onClick={reset} className="btn-secondary flex-1 justify-center">
                   <RefreshCw size={15} /> Restart
                 </button>
               )}
-              <button
-                onClick={() => captureAndProcess(step)}
-                disabled={loading || !cameraReady}
-                className="btn-primary flex-1 justify-center"
-              >
-                {loading ? (
-                  <Loader size={16} className="animate-spin" />
-                ) : (
-                  <><Camera size={16} /> {step === 1 ? 'Capture First Image' : 'Capture Second Image'}</>
-                )}
-              </button>
+              {cameraReady && (
+                <button
+                  onClick={() => captureAndProcess(step)}
+                  disabled={!isFaceValid || loading}
+                  className="btn-primary flex-1 justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loading ? (
+                    <><Loader size={16} className="animate-spin mr-1.5" /> Processing...</>
+                  ) : (
+                    <><Camera size={16} className="mr-1.5" /> Capture Image</>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         )}

@@ -72,7 +72,7 @@ export default function StaffManagement() {
     if (!validate()) return;
     setSubmitting(true);
     try {
-      const payload = { ...form, department_id: parseInt(form.department_id) };
+      const payload = { ...form, department_id: form.department_id };
       if (!payload.password) payload.password = 'staff@123';
       await adminAPI.createStaff(payload);
       toast.success(`${form.name} added as faculty successfully.`);
@@ -115,7 +115,7 @@ export default function StaffManagement() {
     try {
       const payload = {
         ...editForm,
-        department_id: parseInt(editForm.department_id),
+        department_id: editForm.department_id,
       };
       await adminAPI.updateStaff(editStaff.id, payload);
       toast.success('Faculty details updated successfully.');

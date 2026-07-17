@@ -25,7 +25,7 @@ export default function HolidayManagement() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
-    name: '', holiday_date: '', type: 'public', description: '', academic_year: '2024-25',
+    name: '', from_date: '', to_date: '', type: 'public', description: '', academic_year: '2024-25',
   });
 
   useEffect(() => { fetchHolidays(); }, []);
@@ -46,7 +46,7 @@ export default function HolidayManagement() {
       await adminAPI.createHoliday(form);
       toast.success('Holiday added successfully.');
       setShowForm(false);
-      setForm({ name: '', holiday_date: '', type: 'public', description: '', academic_year: '2024-25' });
+      setForm({ name: '', from_date: '', to_date: '', type: 'public', description: '', academic_year: '2024-25' });
       fetchHolidays();
     } catch {
       toast.error('Failed to add holiday.');
@@ -81,7 +81,7 @@ export default function HolidayManagement() {
         <div className="card">
           <div className="card-header"><span className="card-title">Add New Holiday</span></div>
           <form onSubmit={handleCreate} className="card-body space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="form-label">Holiday Name</label>
                 <input type="text" className="form-input" required
@@ -89,9 +89,17 @@ export default function HolidayManagement() {
                   placeholder="e.g. Pongal" />
               </div>
               <div>
-                <label className="form-label">Date</label>
+                <label className="form-label">From Date</label>
                 <input type="date" className="form-input" required
-                  value={form.holiday_date} onChange={e => setForm(p => ({ ...p, holiday_date: e.target.value }))} />
+                  value={form.from_date} onChange={e => {
+                    const val = e.target.value;
+                    setForm(p => ({ ...p, from_date: val, to_date: p.to_date || val }));
+                  }} />
+              </div>
+              <div>
+                <label className="form-label">To Date</label>
+                <input type="date" className="form-input" required
+                  value={form.to_date} onChange={e => setForm(p => ({ ...p, to_date: e.target.value }))} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -141,8 +149,8 @@ export default function HolidayManagement() {
               <thead>
                 <tr>
                   <th>Holiday Name</th>
-                  <th>Date</th>
-                  <th>Day</th>
+                  <th>Holiday Dates</th>
+                  <th>Duration / Day</th>
                   <th>Type</th>
                   <th>Academic Year</th>
                   <th></th>
@@ -152,8 +160,16 @@ export default function HolidayManagement() {
                 {holidays.map(h => (
                   <tr key={h.id}>
                     <td className="font-medium">{h.name}</td>
-                    <td>{format(new Date(h.holiday_date), 'dd MMM yyyy')}</td>
-                    <td className="text-surface-500">{format(new Date(h.holiday_date), 'EEEE')}</td>
+                    <td>
+                      {h.from_date === h.to_date || !h.to_date
+                        ? format(new Date(h.from_date), 'dd MMM yyyy')
+                        : `${format(new Date(h.from_date), 'dd MMM')} — ${format(new Date(h.to_date), 'dd MMM yyyy')}`}
+                    </td>
+                    <td className="text-surface-500">
+                      {h.from_date === h.to_date || !h.to_date
+                        ? format(new Date(h.from_date), 'EEEE')
+                        : `Duration: ${Math.round((new Date(h.to_date) - new Date(h.from_date)) / (1000 * 60 * 60 * 24)) + 1} days`}
+                    </td>
                     <td><span className={`badge ${TYPE_BADGE[h.type]}`}>{h.type}</span></td>
                     <td className="text-surface-500">{h.academic_year}</td>
                     <td>

@@ -11,7 +11,7 @@ async function getPendingStudents(req, res, next) {
     const offset = (page - 1) * limit;
 
     const [rows] = await db.query(
-      `SELECT s.id, s.student_id, s.name, s.email, s.mobile, s.year, s.semester, s.branch,
+      `SELECT s.id, s.student_id, s.name, s.email, s.phone_number AS mobile, s.year, s.semester, s.branch,
               s.biometric_registered, s.created_at, d.name AS department
        FROM students s
        LEFT JOIN departments d ON s.department_id = d.id
@@ -88,7 +88,7 @@ async function getAllStudents(req, res, next) {
     `;
 
     let sql = `
-      SELECT s.id, s.student_id, s.name, s.email, s.mobile, s.year, s.semester, s.branch,
+      SELECT s.id, s.student_id, s.name, s.email, s.phone_number AS mobile, s.year, s.semester, s.branch,
              s.status, s.biometric_registered, s.last_login, s.created_at,
              d.name AS department
       FROM students s
@@ -97,7 +97,7 @@ async function getAllStudents(req, res, next) {
     `;
 
     if (department_id) {
-      const deptId = parseInt(department_id);
+      const deptId = department_id;
       sql += ' AND s.department_id = ?';
       params.push(deptId);
       countSql += ' AND s.department_id = ?';
@@ -143,11 +143,11 @@ async function getAllStudents(req, res, next) {
 async function getAllStaff(req, res, next) {
   try {
     const [rows] = await db.query(
-      `SELECT s.id, s.staff_id, s.name, s.email, s.mobile, s.designation,
-              s.is_active, s.last_login, s.created_at, d.name AS department
-       FROM staff s
-       LEFT JOIN departments d ON s.department_id = d.id
-       ORDER BY s.name`
+      `SELECT f.id, f.employee_id AS staff_id, f.name, f.email, f.phone AS mobile, f.designation,
+              f.is_active, f.last_login, f.created_at, d.name AS department
+       FROM faculty f
+       LEFT JOIN departments d ON f.department_id = d.id
+       ORDER BY f.name`
     );
     return successResponse(res, rows, 'Staff fetched.');
   } catch (err) {
@@ -165,19 +165,14 @@ async function createStaff(req, res, next) {
     const { name, staff_id, email, mobile, department_id, designation, password } = req.body;
 
     const emailLower = email.toLowerCase();
-    const domainMatch = emailLower.endsWith('.edu') || emailLower.endsWith('.edu.in') || emailLower.endsWith('.edu.com');
-    if (!domainMatch) {
-      return errorResponse(res, 'Email must end with .edu, .edu.in or .edu.com', 400);
-    }
-
-    const [existing] = await db.query('SELECT id FROM staff WHERE email = ?', [email]);
+    const [existing] = await db.query('SELECT id FROM faculty WHERE email = ?', [email]);
     if (existing.length) return errorResponse(res, 'Staff with this email already exists.', 409);
 
     const passwordHash = await bcrypt.hash(password || 'staff@123', 12);
 
     const [result] = await db.query(
-      'INSERT INTO staff (staff_id, name, email, password_hash, mobile, department_id, designation) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [staff_id, name, email, passwordHash, mobile, department_id, designation]
+      'INSERT INTO faculty (employee_id, name, email, password_hash, phone, department_id, designation, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)',
+      [staff_id, name, email, passwordHash, mobile || '', department_id, designation]
     );
 
     return successResponse(res, { id: result.insertId }, 'Staff created successfully.', 201);
@@ -196,20 +191,15 @@ async function updateStaff(req, res, next) {
     const { name, staff_id, email, mobile, department_id, designation, is_active } = req.body;
 
     const emailLower = email.toLowerCase();
-    const domainMatch = emailLower.endsWith('.edu') || emailLower.endsWith('.edu.in') || emailLower.endsWith('.edu.com');
-    if (!domainMatch) {
-      return errorResponse(res, 'Email must end with .edu, .edu.in or .edu.com', 400);
-    }
-
-    const [emailCheck] = await db.query('SELECT id FROM staff WHERE email = ? AND id != ?', [email, id]);
+    const [emailCheck] = await db.query('SELECT id FROM faculty WHERE email = ? AND id != ?', [email, id]);
     if (emailCheck.length) return errorResponse(res, 'Email already in use by another staff member.', 409);
 
-    const [idCheck] = await db.query('SELECT id FROM staff WHERE staff_id = ? AND id != ?', [staff_id, id]);
+    const [idCheck] = await db.query('SELECT id FROM faculty WHERE employee_id = ? AND id != ?', [staff_id, id]);
     if (idCheck.length) return errorResponse(res, 'Staff ID already in use.', 409);
 
     await db.query(
-      `UPDATE staff 
-       SET name = ?, staff_id = ?, email = ?, mobile = ?, department_id = ?, designation = ?, is_active = ? 
+      `UPDATE faculty 
+       SET name = ?, employee_id = ?, email = ?, phone = ?, department_id = ?, designation = ?, is_active = ? 
        WHERE id = ?`,
       [name, staff_id, email, mobile, department_id, designation, !!is_active, id]
     );
@@ -227,7 +217,7 @@ async function updateStaff(req, res, next) {
 async function deleteStaff(req, res, next) {
   try {
     const { id } = req.params;
-    await db.query('DELETE FROM staff WHERE id = ?', [id]);
+    await db.query('DELETE FROM faculty WHERE id = ?', [id]);
     return successResponse(res, null, 'Staff deleted successfully.');
   } catch (err) {
     next(err);
@@ -243,12 +233,6 @@ async function createStudent(req, res, next) {
     const bcrypt = require('bcryptjs');
     const { name, student_id, email, mobile, department_id, branch, year, semester, password } = req.body;
 
-    const emailLower = email.toLowerCase();
-    const domainMatch = emailLower.endsWith('.edu') || emailLower.endsWith('.edu.in') || emailLower.endsWith('.edu.com');
-    if (!domainMatch) {
-      return errorResponse(res, 'Email must end with .edu, .edu.in or .edu.com', 400);
-    }
-
     const [emailCheck] = await db.query('SELECT id FROM students WHERE email = ?', [email]);
     if (emailCheck.length) return errorResponse(res, 'Student with this email already exists.', 409);
 
@@ -257,10 +241,22 @@ async function createStudent(req, res, next) {
 
     const passwordHash = await bcrypt.hash(password || 'student@123', 12);
 
+    const phone   = mobile || '';
+    const regNum  = student_id;
+    const gendr   = 'other';
+    const dob     = '2000-01-01';
+    const acYear  = `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
+    const sect    = 'A';
+    const btch    = String(new Date().getFullYear());
+    const admYr   = new Date().getFullYear();
+
     const [result] = await db.query(
-      `INSERT INTO students (student_id, name, email, mobile, password_hash, department_id, branch, year, semester, status, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', TRUE)`,
-      [student_id, name, email, mobile, passwordHash, department_id, branch, year, semester]
+      `INSERT INTO students (student_id, register_number, name, email, phone_number, gender, date_of_birth,
+                             department_id, academic_year, semester, section, batch, admission_year,
+                             password_hash, is_active, biometric_registered, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, FALSE, 'approved')`,
+      [student_id, regNum, name, email, phone, gendr, dob,
+       department_id, acYear, parseInt(semester), sect, btch, admYr, passwordHash]
     );
 
     return successResponse(res, { id: result.insertId }, 'Student created successfully.', 201);
@@ -278,12 +274,6 @@ async function updateStudent(req, res, next) {
     const { id } = req.params;
     const { name, student_id, email, mobile, department_id, branch, year, semester, status, is_active } = req.body;
 
-    const emailLower = email.toLowerCase();
-    const domainMatch = emailLower.endsWith('.edu') || emailLower.endsWith('.edu.in') || emailLower.endsWith('.edu.com');
-    if (!domainMatch) {
-      return errorResponse(res, 'Email must end with .edu, .edu.in or .edu.com', 400);
-    }
-
     const [emailCheck] = await db.query('SELECT id FROM students WHERE email = ? AND id != ?', [email, id]);
     if (emailCheck.length) return errorResponse(res, 'Email already in use by another student.', 409);
 
@@ -292,7 +282,7 @@ async function updateStudent(req, res, next) {
 
     await db.query(
       `UPDATE students 
-       SET name = ?, student_id = ?, email = ?, mobile = ?, department_id = ?, branch = ?, year = ?, semester = ?, status = ?, is_active = ? 
+       SET name = ?, student_id = ?, email = ?, phone_number = ?, department_id = ?, branch = ?, year = ?, semester = ?, status = ?, is_active = ? 
        WHERE id = ?`,
       [name, student_id, email, mobile, department_id, branch, year, semester, status, !!is_active, id]
     );
@@ -327,7 +317,7 @@ async function getHolidays(req, res, next) {
     let sql = 'SELECT * FROM holidays';
     const params = [];
     if (academic_year) { sql += ' WHERE academic_year = ?'; params.push(academic_year); }
-    sql += ' ORDER BY holiday_date';
+    sql += ' ORDER BY from_date';
     const [rows] = await db.query(sql, params);
     return successResponse(res, rows, 'Holidays fetched.');
   } catch (err) {
@@ -337,10 +327,10 @@ async function getHolidays(req, res, next) {
 
 async function createHoliday(req, res, next) {
   try {
-    const { name, holiday_date, type, description, academic_year } = req.body;
+    const { name, from_date, to_date, type, description, academic_year } = req.body;
     const [result] = await db.query(
-      'INSERT INTO holidays (name, holiday_date, type, description, academic_year, created_by) VALUES (?, ?, ?, ?, ?, ?)',
-      [name, holiday_date, type, description, academic_year, req.user.id]
+      'INSERT INTO holidays (name, from_date, to_date, type, description, academic_year, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [name, from_date, to_date || from_date, type, description, academic_year, req.user.id]
     );
     return successResponse(res, { id: result.insertId }, 'Holiday created.', 201);
   } catch (err) {
@@ -500,13 +490,18 @@ async function updateWorkingDays(req, res, next) {
  */
 async function getDashboardStats(req, res, next) {
   try {
-    const [[students]] = await db.query("SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending, SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved FROM students");
-    const [[staff]] = await db.query('SELECT COUNT(*) AS total FROM staff WHERE is_active = TRUE');
+    const [[students]] = await db.query(
+      `SELECT COUNT(*) AS total, 
+              SUM(CASE WHEN status::text = 'pending' THEN 1 ELSE 0 END) AS pending, 
+              SUM(CASE WHEN status::text = 'approved' THEN 1 ELSE 0 END) AS approved 
+       FROM students`
+    );
+    const [[staff]] = await db.query('SELECT COUNT(*) AS total FROM faculty WHERE is_active = TRUE');
     const [[todayAtt]] = await db.query(
       `SELECT COALESCE(SUM(daily_present), 0) AS total FROM (
-         SELECT student_id, LEAST(1.0, SUM(CASE WHEN status = 'present' THEN 1 WHEN status = 'halfday' THEN 0.5 ELSE 0 END)) AS daily_present
+         SELECT student_id, LEAST(1.0, SUM(CASE WHEN status::text = 'present' THEN 1 WHEN status::text = 'half_day' THEN 0.5 ELSE 0 END)) AS daily_present
          FROM attendance
-         WHERE attendance_date = CURDATE()
+         WHERE attendance_date = CURRENT_DATE
          GROUP BY student_id
        ) AS t`
     );
@@ -518,11 +513,11 @@ async function getDashboardStats(req, res, next) {
               COUNT(s.id) AS total_students,
               COALESCE(SUM(t.daily_present), 0) AS present_today
        FROM departments d
-       LEFT JOIN students s ON s.department_id = d.id AND s.status = 'approved'
+       LEFT JOIN students s ON s.department_id = d.id AND s.status::text = 'approved'
        LEFT JOIN (
-         SELECT student_id, LEAST(1.0, SUM(CASE WHEN status = 'present' THEN 1 WHEN status = 'halfday' THEN 0.5 ELSE 0 END)) AS daily_present
+         SELECT student_id, LEAST(1.0, SUM(CASE WHEN status::text = 'present' THEN 1 WHEN status::text = 'half_day' THEN 0.5 ELSE 0 END)) AS daily_present
          FROM attendance
-         WHERE attendance_date = CURDATE()
+         WHERE attendance_date = CURRENT_DATE
          GROUP BY student_id
        ) t ON t.student_id = s.id
        GROUP BY d.id, d.name
@@ -563,7 +558,7 @@ async function getSecurityLogs(req, res, next) {
               COALESCE(s.name, st.name, a.name) AS user_name
        FROM security_logs sl
        LEFT JOIN students s ON sl.user_role = 'student' AND sl.user_id = s.id
-       LEFT JOIN staff st ON sl.user_role = 'staff' AND sl.user_id = st.id
+       LEFT JOIN faculty st ON sl.user_role = 'staff' AND sl.user_id = st.id
        LEFT JOIN admins a ON sl.user_role = 'admin' AND sl.user_id = a.id
        ORDER BY sl.created_at DESC
        LIMIT ? OFFSET ?`,

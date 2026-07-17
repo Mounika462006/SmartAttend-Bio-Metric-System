@@ -154,13 +154,14 @@ CREATE TABLE attendance_settings (
 CREATE TABLE holidays (
   id SERIAL PRIMARY KEY,
   name VARCHAR(150) NOT NULL,
-  holiday_date DATE NOT NULL,
+  from_date DATE NOT NULL,
+  to_date DATE NOT NULL,
   type holiday_type NOT NULL DEFAULT 'public',
   description TEXT,
   academic_year VARCHAR(20),
   created_by INTEGER,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -299,7 +300,7 @@ CREATE INDEX idx_student_dept ON students (department_id);
 CREATE INDEX idx_student_status ON students (status);
 CREATE INDEX idx_student_year_sem ON students (year, semester);
 CREATE INDEX idx_biometric_student ON biometric_data (student_id);
-CREATE INDEX idx_holiday_date ON holidays (holiday_date);
+CREATE INDEX idx_holiday_date ON holidays (from_date);
 CREATE INDEX idx_holiday_year ON holidays (academic_year);
 CREATE INDEX idx_wd_year ON working_days (academic_year);
 CREATE INDEX idx_att_date ON attendance (attendance_date);

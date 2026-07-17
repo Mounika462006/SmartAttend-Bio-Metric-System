@@ -29,21 +29,26 @@ const loginValidation = [
 const registerValidation = [
   body('name').trim().notEmpty().isLength({ min: 2 }).withMessage('Full name must be at least 2 characters.'),
   body('student_id').trim().notEmpty().withMessage('Student ID is required.'),
-  body('department_id').isInt({ min: 1 }).withMessage('Valid department is required.'),
-  body('year').isInt({ min: 1, max: 4 }).withMessage('Year must be between 1 and 4.'),
-  body('semester').isInt({ min: 1, max: 8 }).withMessage('Semester must be between 1 and 8.'),
-  body('email')
-    .isEmail().withMessage('Valid email is required.')
-    .normalizeEmail()
+  // Accept both UUID (from new schema) and integer department IDs
+  body('department_id')
+    .notEmpty().withMessage('Department is required.')
     .custom((value) => {
-      const lower = value.toLowerCase();
-      const domainMatch = lower.endsWith('.edu') || lower.endsWith('.edu.in') || lower.endsWith('.edu.com');
-      if (!domainMatch) {
-        throw new Error('Email must end with .edu, .edu.in or .edu.com');
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+      const isInt = Number.isInteger(Number(value)) && Number(value) > 0;
+      if (!isUUID && !isInt) {
+        throw new Error('Valid department is required.');
       }
       return true;
     }),
-  body('mobile').isMobilePhone('en-IN').withMessage('Valid Indian mobile number is required.'),
+  // year is optional in new schema (admission_year is used instead) but validate if given
+  body('year').optional({ nullable: true, checkFalsy: true }).isInt({ min: 1, max: 6 }).withMessage('Year must be between 1 and 6.'),
+  body('semester').isInt({ min: 1, max: 8 }).withMessage('Semester must be between 1 and 8.'),
+  body('email')
+    .isEmail().withMessage('Valid email is required.')
+    .normalizeEmail(),
+  // mobile/phone_number: either one is acceptable, both are optional at validation level
+  body('mobile').optional({ nullable: true, checkFalsy: true }).isMobilePhone('en-IN').withMessage('Valid Indian mobile number is required.'),
+  body('phone_number').optional({ nullable: true, checkFalsy: true }).isMobilePhone('en-IN').withMessage('Valid Indian mobile number is required.'),
   body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters.')
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
     .withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number.'),

@@ -4,7 +4,21 @@ const { errorResponse } = require('../utils/response');
  * Global error handler middleware
  */
 function errorHandler(err, req, res, next) {
-  console.error(`[Error] ${req.method} ${req.path}:`, err.message);
+  // Enhanced telemetry logging for production debugging
+  console.error('================================================');
+  console.error('[API Error Telemetry]');
+  console.error(`Timestamp:    ${new Date().toISOString()}`);
+  console.error(`Request:      ${req.method} ${req.originalUrl}`);
+  console.error(`IP:           ${req.ip}`);
+  console.error(`Params:       `, JSON.stringify(req.params || {}));
+  console.error(`Query:        `, JSON.stringify(req.query || {}));
+  console.error(`Body Fields:  `, Object.keys(req.body || {}));
+  console.error(`Error Code:   ${err.code || 'N/A'}`);
+  console.error(`Error Msg:    ${err.message}`);
+  if (err.stack) {
+    console.error(`Stack Trace:\n${err.stack}`);
+  }
+  console.error('================================================');
 
   // Multer errors
   if (err.code === 'LIMIT_FILE_SIZE') {

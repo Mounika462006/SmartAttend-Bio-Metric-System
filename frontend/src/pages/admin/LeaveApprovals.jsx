@@ -6,6 +6,7 @@ import { attendanceAPI } from '../../api/services';
 import { CheckCircle, XCircle, Search, Filter, MessageSquare } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
+import { useAuth } from '../../context/AuthContext';
 
 const LEAVE_TYPES = {
   medical: 'Medical', personal: 'Personal', family: 'Family Emergency',
@@ -13,6 +14,9 @@ const LEAVE_TYPES = {
 };
 
 export default function LeaveApprovals() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+
   const [leaves, setLeaves] = useState([]);
   const [loading, setLoading] = useState(true);
   const [departments, setDepartments] = useState([]);
@@ -123,9 +127,9 @@ export default function LeaveApprovals() {
                     {leave.status === 'pending' && (
                       <button
                         onClick={() => setReviewModal(leave)}
-                        className="btn-primary py-1 px-3 text-xs"
+                        className={isAdmin ? "btn-secondary py-1 px-3 text-xs" : "btn-primary py-1 px-3 text-xs"}
                       >
-                        <MessageSquare size={12} /> Review
+                        <MessageSquare size={12} /> {isAdmin ? 'Details' : 'Review'}
                       </button>
                     )}
                   </div>
@@ -148,22 +152,32 @@ export default function LeaveApprovals() {
             <div className="bg-surface-50 rounded-lg p-3 text-sm text-surface-600 mb-4">
               {reviewModal.reason}
             </div>
-            <div className="mb-4">
-              <label className="form-label">Comment (Optional)</label>
-              <textarea className="form-input resize-none" rows={2}
-                value={reviewComment} onChange={e => setReviewComment(e.target.value)}
-                placeholder="Add a comment for the student..." />
-            </div>
+            {!isAdmin && (
+              <div className="mb-4">
+                <label className="form-label">Comment (Optional)</label>
+                <textarea className="form-input resize-none" rows={2}
+                  value={reviewComment} onChange={e => setReviewComment(e.target.value)}
+                  placeholder="Add a comment for the student..." />
+              </div>
+            )}
             <div className="flex gap-3">
-              <button onClick={() => { setReviewModal(null); setReviewComment(''); }} className="btn-secondary flex-1">
-                Cancel
-              </button>
-              <button onClick={() => handleReview('rejected')} disabled={!!processing} className="btn-danger flex-1 justify-center">
-                <XCircle size={15} /> Reject
-              </button>
-              <button onClick={() => handleReview('approved')} disabled={!!processing} className="btn-success flex-1 justify-center">
-                <CheckCircle size={15} /> Approve
-              </button>
+              {isAdmin ? (
+                <button onClick={() => setReviewModal(null)} className="btn-secondary flex-1 justify-center">
+                  Close
+                </button>
+              ) : (
+                <>
+                  <button onClick={() => { setReviewModal(null); setReviewComment(''); }} className="btn-secondary flex-1">
+                    Cancel
+                  </button>
+                  <button onClick={() => handleReview('rejected')} disabled={!!processing} className="btn-danger flex-1 justify-center">
+                    <XCircle size={15} /> Reject
+                  </button>
+                  <button onClick={() => handleReview('approved')} disabled={!!processing} className="btn-success flex-1 justify-center">
+                    <CheckCircle size={15} /> Approve
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -202,7 +202,7 @@ async function getAttendanceStats(req, res, next) {
 
     // Get total holidays in semester
     const [holidayRows] = await db.query(
-      `SELECT COUNT(*) AS holidays FROM holidays WHERE academic_year = ?`,
+      `SELECT COALESCE(SUM((to_date - from_date) + 1), 0) AS holidays FROM holidays WHERE academic_year = ?`,
       [wdRows[0]?.academic_year || '2024-25']
     );
 
@@ -265,11 +265,11 @@ async function getDepartmentAttendance(req, res, next) {
         SELECT
           student_id,
           CASE
-            WHEN SUM(CASE WHEN status = 'leave'   THEN 1 ELSE 0 END) > 0  THEN 'leave'
-            WHEN SUM(CASE WHEN status = 'present' THEN 1.0
-                          WHEN status = 'halfday' THEN 0.5 ELSE 0 END) >= 1.0 THEN 'present'
-            WHEN SUM(CASE WHEN status = 'present' THEN 1.0
-                          WHEN status = 'halfday' THEN 0.5 ELSE 0 END) >= 0.5 THEN 'halfday'
+            WHEN SUM(CASE WHEN status::text = 'leave'   THEN 1 ELSE 0 END) > 0  THEN 'leave'
+            WHEN SUM(CASE WHEN status::text = 'present' THEN 1.0
+                          WHEN status::text = 'half_day' THEN 0.5 ELSE 0 END) >= 1.0 THEN 'present'
+            WHEN SUM(CASE WHEN status::text = 'present' THEN 1.0
+                          WHEN status::text = 'half_day' THEN 0.5 ELSE 0 END) >= 0.5 THEN 'half_day'
             ELSE 'absent'
           END AS status,
           MAX(marked_at)         AS marked_at,
@@ -280,13 +280,13 @@ async function getDepartmentAttendance(req, res, next) {
         WHERE attendance_date = ?
         GROUP BY student_id
       ) agg ON agg.student_id = s.id
-      WHERE s.status = 'approved'
+      WHERE s.status::text = 'approved'
     `;
     const params = [targetDate];
 
     if (department_id) {
       sql += ' AND s.department_id = ?';
-      params.push(parseInt(department_id));
+      params.push(department_id);
     }
     if (year) {
       sql += ' AND s.year = ?';

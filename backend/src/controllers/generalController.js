@@ -57,8 +57,8 @@ async function getStudentProfile(req, res, next) {
   try {
     const studentId = req.user.id;
     const [rows] = await db.query(
-      `SELECT s.id, s.student_id, s.name, s.email, s.mobile, s.year, s.semester, s.branch,
-              s.status, s.biometric_registered, s.profile_image_url, s.created_at,
+      `SELECT s.id, s.student_id, s.name, s.email, s.phone_number AS mobile, s.year, s.semester, s.branch,
+              s.status, s.biometric_registered, s.profile_photo_url AS profile_image_url, s.created_at,
               d.name AS department, d.code AS department_code
        FROM students s
        LEFT JOIN departments d ON s.department_id = d.id
@@ -77,7 +77,18 @@ async function getStudentProfile(req, res, next) {
  */
 async function getDepartments(req, res, next) {
   try {
-    const [rows] = await db.query('SELECT id, name, code FROM departments WHERE is_active = TRUE ORDER BY name');
+    let rows;
+    try {
+      [rows] = await db.query('SELECT id, name, code, category FROM departments WHERE is_active = TRUE ORDER BY name');
+    } catch (primaryErr) {
+      console.warn('[DB Warning] Primary departments query failed (checking if category column is missing):', primaryErr.message);
+      try {
+        [rows] = await db.query('SELECT id, name, code FROM departments WHERE is_active = TRUE ORDER BY name');
+      } catch (fallbackErr) {
+        console.error('[DB Error] Both primary and fallback department queries failed:', fallbackErr.message);
+        throw fallbackErr;
+      }
+    }
     return successResponse(res, rows, 'Departments fetched.');
   } catch (err) {
     next(err);
@@ -109,19 +120,19 @@ async function getCurrentGeoFencing(req, res, next) {
 async function getStaffDashboard(req, res, next) {
   try {
     const staffId = req.user.id;
-    const [staffInfo] = await db.query('SELECT department_id FROM staff WHERE id = ?', [staffId]);
+    const [staffInfo] = await db.query('SELECT department_id FROM faculty WHERE id = ?', [staffId]);
     const deptId = staffInfo[0]?.department_id;
 
     const [[students]] = await db.query(
-      "SELECT COUNT(*) AS total FROM students WHERE department_id = ? AND status = 'approved'",
+      "SELECT COUNT(*) AS total FROM students WHERE department_id = ? AND status::text = 'approved'",
       [deptId]
     );
     const [[todayAtt]] = await db.query(
       `SELECT COALESCE(SUM(daily_present), 0) AS present FROM (
-         SELECT a.student_id, LEAST(1.0, SUM(CASE WHEN a.status = 'present' THEN 1 WHEN a.status = 'halfday' THEN 0.5 ELSE 0 END)) AS daily_present
+         SELECT a.student_id, LEAST(1.0, SUM(CASE WHEN a.status::text = 'present' THEN 1 WHEN a.status::text = 'half_day' THEN 0.5 ELSE 0 END)) AS daily_present
          FROM attendance a
          JOIN students s ON a.student_id = s.id
-         WHERE s.department_id = ? AND a.attendance_date = CURDATE()
+         WHERE s.department_id = ? AND a.attendance_date = CURRENT_DATE
          GROUP BY a.student_id
        ) AS t`,
       [deptId]
@@ -129,17 +140,17 @@ async function getStaffDashboard(req, res, next) {
     const [[pendingLeaves]] = await db.query(
       `SELECT COUNT(*) AS total FROM leave_requests lr
        JOIN students s ON lr.student_id = s.id
-       WHERE s.department_id = ? AND lr.status = 'pending'`,
+       WHERE s.department_id = ? AND lr.status::text = 'pending'`,
       [deptId]
     );
     const [lowAttendance] = await db.query(
       `SELECT id, name, student_id, percentage
        FROM (
          SELECT s.id, s.name, s.student_id,
-                ROUND(SUM(CASE WHEN a.status = 'present' THEN 1 WHEN a.status = 'halfday' THEN 0.5 ELSE 0 END) / NULLIF(COUNT(a.id), 0) * 100.0, 1) AS percentage
+                ROUND(SUM(CASE WHEN a.status::text = 'present' THEN 1 WHEN a.status::text = 'half_day' THEN 0.5 ELSE 0 END) / NULLIF(COUNT(a.id), 0) * 100.0, 1) AS percentage
          FROM students s
          LEFT JOIN attendance a ON a.student_id = s.id
-         WHERE s.department_id = ? AND s.status = 'approved'
+         WHERE s.department_id = ? AND s.status::text = 'approved'
          GROUP BY s.id, s.name, s.student_id
        ) t
        WHERE percentage < 75 OR percentage IS NULL

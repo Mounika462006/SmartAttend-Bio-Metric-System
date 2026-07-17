@@ -29,7 +29,7 @@ async function getAllLeaves(req, res, next) {
       FROM leave_requests lr
       JOIN students s ON lr.student_id = s.id
       JOIN departments d ON s.department_id = d.id
-      LEFT JOIN staff sf ON lr.reviewed_by = sf.id
+      LEFT JOIN faculty sf ON lr.reviewed_by = sf.id
       WHERE 1=1
     `;
 
@@ -40,7 +40,7 @@ async function getAllLeaves(req, res, next) {
       countParams.push(status);
     }
     if (department_id) {
-      const deptId = parseInt(department_id);
+      const deptId = department_id;
       sql += ' AND s.department_id = ?';
       params.push(deptId);
       countSql += ' AND s.department_id = ?';
@@ -69,7 +69,7 @@ async function getMyLeaves(req, res, next) {
     const [rows] = await db.query(
       `SELECT lr.*, sf.name AS reviewed_by_name
        FROM leave_requests lr
-       LEFT JOIN staff sf ON lr.reviewed_by = sf.id
+       LEFT JOIN faculty sf ON lr.reviewed_by = sf.id
        WHERE lr.student_id = ?
        ORDER BY lr.created_at DESC`,
       [studentId]
@@ -109,7 +109,7 @@ async function applyLeave(req, res, next) {
 
     // Notify staff in department
     const [studentInfo] = await db.query('SELECT name, department_id FROM students WHERE id = ?', [studentId]);
-    const [staffList] = await db.query('SELECT id FROM staff WHERE department_id = ? AND is_active = TRUE', [studentInfo[0].department_id]);
+    const [staffList] = await db.query('SELECT id FROM faculty WHERE department_id = ? AND is_active = TRUE', [studentInfo[0].department_id]);
 
     for (const staff of staffList) {
       await db.query(

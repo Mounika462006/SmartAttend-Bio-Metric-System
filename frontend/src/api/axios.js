@@ -13,7 +13,16 @@ const api = axios.create({
 // Request interceptor - attach JWT token
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('accessToken');
+    let role = 'student';
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname;
+      if (path.startsWith('/admin')) {
+        role = 'admin';
+      } else if (path.startsWith('/staff')) {
+        role = 'staff';
+      }
+    }
+    const token = localStorage.getItem(`${role}_accessToken`) || localStorage.getItem('accessToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -43,9 +52,23 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
+    let role = 'student';
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname;
+      if (path.startsWith('/admin')) role = 'admin';
+      else if (path.startsWith('/staff')) role = 'staff';
+    }
+
     // Handle 403 role mismatch errors
     if (error.response?.status === 403 && error.response?.data?.message === 'You do not have permission to access this resource.') {
-      localStorage.clear();
+      localStorage.removeItem(`${role}_accessToken`);
+      localStorage.removeItem(`${role}_refreshToken`);
+      localStorage.removeItem(`${role}_user`);
+      
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('user');
+      
       window.location.href = '/login';
       return Promise.reject(error);
     }
@@ -65,12 +88,13 @@ api.interceptors.response.use(
       originalRequest._retry = true;
       isRefreshing = true;
 
-      const refreshToken = localStorage.getItem('refreshToken');
+      const refreshToken = localStorage.getItem(`${role}_refreshToken`) || localStorage.getItem('refreshToken');
 
       if (refreshToken) {
         try {
           const { data } = await axios.post('/api/auth/refresh', { refreshToken });
           const newToken = data.data.accessToken;
+          localStorage.setItem(`${role}_accessToken`, newToken);
           localStorage.setItem('accessToken', newToken);
           originalRequest.headers.Authorization = `Bearer ${newToken}`;
           processQueue(null, newToken);
@@ -82,13 +106,27 @@ api.interceptors.response.use(
 
           // Only force logout if the server explicitly rejected the refresh token (400 or 401)
           if (err.response?.status === 401 || err.response?.status === 400) {
-            localStorage.clear();
+            localStorage.removeItem(`${role}_accessToken`);
+            localStorage.removeItem(`${role}_refreshToken`);
+            localStorage.removeItem(`${role}_user`);
+            
+            localStorage.removeItem('accessToken');
+            localStorage.removeItem('refreshToken');
+            localStorage.removeItem('user');
+            
             window.location.href = '/login';
           }
           return Promise.reject(err);
         }
       } else {
-        localStorage.clear();
+        localStorage.removeItem(`${role}_accessToken`);
+        localStorage.removeItem(`${role}_refreshToken`);
+        localStorage.removeItem(`${role}_user`);
+        
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('user');
+        
         window.location.href = '/login';
       }
     }

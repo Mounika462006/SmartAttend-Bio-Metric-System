@@ -16,49 +16,129 @@ function getApiErrorMessage(err, fallback) {
       : fallback);
 }
 
-// All UG courses (ordered as specified)
-const ALL_UG_COURSES = [
-  'B.E Computer Science and Engineering',
-  'B.Tech Information Technology',
-  'B.E Electronics and Communication Engineering',
-  'B.E Electrical and Electronics Engineering',
-  'B.E Mechanical Engineering',
-  'B.E Civil Engineering',
-  'B.Tech Artificial Intelligence and Data Science',
-  'B.Tech Artificial Intelligence and Machine Learning',
-  'B.Tech Cyber Security',
-  'B.Tech Biotechnology',
-  'B.E Chemical Engineering',
-  'B.Tech Food Technology',
-  'B.Tech Automobile Engineering',
-  'B.Tech Mechatronics Engineering',
-  'B.Tech Robotics and Automation',
+const DEGREE_PROGRAMS = [
+  'B.E. (Bachelor of Engineering)',
+  'B.Tech. (Bachelor of Technology)',
+  'B.Sc. (Bachelor of Science)',
+  'B.Com. (Bachelor of Commerce)',
+  'B.B.A. (Bachelor of Business Administration)',
+  'B.C.A. (Bachelor of Computer Applications)',
+  'M.E. (Master of Engineering)',
+  'M.Tech. (Master of Technology)',
+  'M.Sc. (Master of Science)',
+  'M.Com. (Master of Commerce)',
+  'M.B.A. (Master of Business Administration)',
+  'M.C.A. (Master of Computer Applications)',
+  'Diploma',
+  'Ph.D.'
 ];
 
-// All PG courses (ordered as specified)
-const ALL_PG_COURSES = [
-  'M.E Computer Science and Engineering',
-  'M.Tech Information Technology',
-  'M.E VLSI Design',
-  'M.E Embedded Systems',
-  'M.E Power Systems Engineering',
-  'M.E Structural Engineering',
-  'M.E Manufacturing Engineering',
-  'M.Tech Artificial Intelligence',
-  'M.Tech Data Science',
-  'M.Tech Cyber Security',
-  'M.Tech Biotechnology',
-  'M.E Chemical Engineering',
-  'MBA',
-  'MCA',
-];
+const DEPT_CATEGORIES = {
+  'engineering': 'Engineering & Technology',
+  'science': 'Science',
+  'arts': 'Arts & Humanities',
+  'commerce': 'Commerce & Management',
+  'medical': 'Medical & Health Sciences',
+  'law': 'Law',
+  'education': 'Education',
+  'agriculture': 'Agriculture',
+  'computer_applications': 'Computer Applications',
+  'architecture': 'Architecture & Design',
+  'vocational': 'Vocational Studies',
+};
 
-// Return the appropriate course list based on course type
-// MBA/MCA departments only offer PG
-function getCourses(deptCode, courseType) {
-  if (!deptCode || !courseType) return [];
-  return courseType === 'UG' ? ALL_UG_COURSES : ALL_PG_COURSES;
-}
+const DEPT_CODE_TO_CATEGORY_FALLBACK = {
+  'CSE': 'engineering',
+  'ECE': 'engineering',
+  'MECH': 'engineering',
+  'CIVIL': 'engineering',
+  'EEE': 'engineering',
+  'IT': 'engineering',
+  'AIDS': 'engineering',
+  'BT': 'engineering',
+  'CHEM': 'engineering',
+  'MBA': 'commerce',
+  'MCA': 'computer_applications',
+  'AI-DS': 'engineering',
+  'CSE-AI': 'engineering',
+  'CSE-CS': 'engineering',
+  'ME': 'engineering',
+  'CE': 'engineering',
+  'BIOTECH-ENG': 'engineering',
+  'BME': 'engineering',
+  'MCT': 'engineering',
+  'ROBOTICS': 'engineering',
+  'AERO': 'engineering',
+  'AUTO': 'engineering',
+  'AGRI-ENG': 'engineering',
+  'FOOD-TECH': 'engineering',
+  'TEXTILE': 'engineering',
+  'PROD': 'engineering',
+  'IND-ENG': 'engineering',
+  'PETRO': 'engineering',
+  'MARINE': 'engineering',
+  'MINING': 'engineering',
+  'PHY': 'science',
+  'CHEMISTRY': 'science',
+  'MATH': 'science',
+  'STATS': 'science',
+  'CS': 'science',
+  'DS': 'science',
+  'BIOTECH-SCI': 'science',
+  'MICRO': 'science',
+  'EVS': 'science',
+  'ZOOL': 'science',
+  'BOTANY': 'science',
+  'ENG': 'arts',
+  'TAMIL': 'arts',
+  'HIST': 'arts',
+  'ECON': 'arts',
+  'POL-SCI': 'arts',
+  'SOC': 'arts',
+  'PSYCH': 'arts',
+  'PHIL': 'arts',
+  'JMC': 'arts',
+  'FA': 'arts',
+  'BCOM': 'commerce',
+  'BCOM-CA': 'commerce',
+  'ACCT-FIN': 'commerce',
+  'BANK-INS': 'commerce',
+  'BBA': 'commerce',
+  'BIZ-ANALYTICS': 'commerce',
+  'HRM': 'commerce',
+  'MKTG': 'commerce',
+  'FINANCE': 'commerce',
+  'MBBS': 'medical',
+  'BDS': 'medical',
+  'NURSING': 'medical',
+  'BPHARM': 'medical',
+  'PHARMD': 'medical',
+  'BPT': 'medical',
+  'BOT-MED': 'medical',
+  'MPH': 'medical',
+  'MLT': 'medical',
+  'LLB': 'law',
+  'INT-LAW': 'law',
+  'LLM': 'law',
+  'BED': 'education',
+  'MED': 'education',
+  'AGRICULTURE': 'agriculture',
+  'HORTI': 'agriculture',
+  'FORESTRY': 'agriculture',
+  'AGRI-BIOTECH': 'agriculture',
+  'AGRI-ENG-AG': 'agriculture',
+  'BCA': 'computer_applications',
+  'BARCH': 'architecture',
+  'ID-ARCH': 'architecture',
+  'FD-ARCH': 'architecture',
+  'GD-ARCH': 'architecture',
+  'IND-DES': 'architecture',
+  'HM': 'vocational',
+  'CATERING': 'vocational',
+  'TOURISM': 'vocational',
+  'AVIATION': 'vocational',
+  'EVENT': 'vocational'
+};
 
 export default function RegisterPage() {
   const navigate = useNavigate();
@@ -71,46 +151,85 @@ export default function RegisterPage() {
 
   const [form, setForm] = useState({
     name: '', student_id: '', email: '', mobile: '',
-    department_id: '', course_type: '', branch: '',
+    dept_category: '', department_id: '', branch: '',
     year: '', semester: '',
     password: '', confirm_password: '',
   });
 
   const [fieldErrors, setFieldErrors] = useState({});
+  const [deptLoading, setDeptLoading] = useState(true);
+  const [deptError, setDeptError] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
-    generalAPI.getDepartments()
-      .then(({ data }) => setDepartments(data.data || []))
-      .catch(() => {});
-  }, []);
+    let active = true;
+    const controller = new AbortController();
+
+    const fetchDepts = async (attemptsLeft = 3, delay = 1000) => {
+      if (!active) return;
+      setDeptLoading(true);
+      setDeptError(null);
+      try {
+        const { data } = await generalAPI.getDepartments({ signal: controller.signal });
+        if (active) {
+          setDepartments(data.data || []);
+          setDeptLoading(false);
+        }
+      } catch (err) {
+        if (err.name === 'CanceledError' || err.name === 'AbortError') {
+          return;
+        }
+        console.error(`Failed to load departments (attempts left: ${attemptsLeft}):`, err);
+        if (attemptsLeft > 0 && active) {
+          setTimeout(() => {
+            fetchDepts(attemptsLeft - 1, delay * 2);
+          }, delay);
+        } else if (active) {
+          setDeptError('Failed to load departments. Please check server connection.');
+          setDeptLoading(false);
+        }
+      }
+    };
+
+    fetchDepts();
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [retryCount]);
 
   const selectedDept     = departments.find(d => String(d.id) === String(form.department_id));
   const selectedDeptCode = selectedDept ? selectedDept.code : '';
-  const availableCourses = getCourses(selectedDeptCode, form.course_type);
+  const filteredDepts    = form.dept_category
+    ? departments.filter(d => (d.category || DEPT_CODE_TO_CATEGORY_FALLBACK[d.code]) === form.dept_category)
+    : [];
 
-  // Semester options: UG → 1–8, PG → 1–4
-  const semesterOptions = form.course_type === 'PG'
+  const isPG = form.branch && (form.branch.startsWith('M.') || form.branch.startsWith('Ph.D.'));
+
+  // Semester options: UG/PG
+  const semesterOptions = isPG
     ? [1, 2, 3, 4]
     : [1, 2, 3, 4, 5, 6, 7, 8];
 
-  // Year options: UG → 1–4, PG → 1–2
-  const yearOptions = form.course_type === 'PG'
+  // Year options: UG/PG
+  const yearOptions = isPG
     ? [1, 2]
     : [1, 2, 3, 4];
 
   const update = (field, value) => {
     setForm(prev => {
       const next = { ...prev, [field]: value };
+      if (field === 'dept_category') {
+        next.department_id = '';
+        next.branch        = '';
+        next.year          = '';
+        next.semester      = '';
+      }
       if (field === 'department_id') {
-        next.course_type = '';
         next.branch      = '';
         next.year        = '';
         next.semester    = '';
-      }
-      if (field === 'course_type') {
-        next.branch   = '';
-        next.year     = '';
-        next.semester = '';
       }
       return next;
     });
@@ -129,9 +248,9 @@ export default function RegisterPage() {
     }
     if (step === 1) {
       if (!form.student_id.trim()) errors.student_id = 'Student ID is required.';
+      if (!form.dept_category)     errors.dept_category = 'Please select a department category.';
       if (!form.department_id)   errors.department_id = 'Please select a department.';
-      if (!form.course_type)     errors.course_type   = 'Please select a course type (UG / PG).';
-      if (!form.branch)          errors.branch        = 'Please select your course.';
+      if (!form.branch)          errors.branch        = 'Please select Degree Program.';
       if (!form.year)            errors.year          = 'Please select your year.';
       if (!form.semester)        errors.semester      = 'Please select your semester.';
     }
@@ -157,10 +276,20 @@ export default function RegisterPage() {
     try {
       const payload = { ...form };
       delete payload.confirm_password;
+      delete payload.dept_category;
       delete payload.course_type; // not a DB field — branch already captures the course name
-      payload.department_id = parseInt(payload.department_id);
-      payload.year          = parseInt(payload.year);
+      // department_id is a UUID string — do NOT parseInt it
+      payload.year          = parseInt(payload.year) || undefined;
       payload.semester      = parseInt(payload.semester);
+      // Map mobile -> phone_number for new Supabase schema compatibility
+      payload.phone_number  = payload.mobile || '';
+      // Provide defaults for new schema required fields
+      payload.register_number  = payload.student_id; // Use student_id as register_number if not separately entered
+      payload.gender           = payload.gender || 'other';
+      payload.academic_year    = payload.academic_year || `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
+      payload.section          = payload.section || 'A';
+      payload.batch            = payload.batch || String(new Date().getFullYear());
+      payload.admission_year   = parseInt(payload.admission_year) || new Date().getFullYear();
       await authAPI.register(payload);
       setSuccess(true);
     } catch (err) {
@@ -273,45 +402,67 @@ export default function RegisterPage() {
                   {fieldErrors.student_id && <p className="form-error">{fieldErrors.student_id}</p>}
                 </div>
 
-                {/* Department */}
-                <div>
-                  <label className="form-label">Department</label>
-                  <select className={`form-input ${fieldErrors.department_id ? 'error' : ''}`}
-                    value={form.department_id} onChange={e => update('department_id', e.target.value)}>
-                    <option value="">— Select Department —</option>
-                    {departments.map(dept => (
-                      <option key={dept.id} value={dept.id}>{dept.name}</option>
-                    ))}
-                  </select>
-                  {fieldErrors.department_id && <p className="form-error">{fieldErrors.department_id}</p>}
-                </div>
-
-                {/* Course Type */}
-                {form.department_id && (
-                  <div>
-                    <label className="form-label">Course Type</label>
-                    <select className={`form-input ${fieldErrors.course_type ? 'error' : ''}`}
-                      value={form.course_type} onChange={e => update('course_type', e.target.value)}>
-                      <option value="">— Select Course Type —</option>
-                      {/* MBA dept only has PG, MCA only has PG */}
-                      {!['MBA', 'MCA'].includes(selectedDeptCode) && <option value="UG">UG (Under Graduate)</option>}
-                      <option value="PG">PG (Post Graduate)</option>
-                    </select>
-                    {fieldErrors.course_type && <p className="form-error">{fieldErrors.course_type}</p>}
+                {/* Department Category & Department loading/error gates */}
+                {deptLoading && (
+                  <div className="flex items-center space-x-2 py-3 text-gray-400 text-sm">
+                    <svg className="animate-spin h-5 w-5 text-indigo-500" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    <span>Loading departments...</span>
                   </div>
                 )}
 
-                {/* Course / Branch */}
-                {form.course_type && (
+                {deptError && (
+                  <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-sm text-red-400 space-y-2">
+                    <p>{deptError}</p>
+                    <button type="button" onClick={() => setRetryCount(prev => prev + 1)} className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition duration-200">
+                      Retry Loading
+                    </button>
+                  </div>
+                )}
+
+                {!deptLoading && !deptError && (
+                  <>
+                    {/* Department Category */}
+                    <div>
+                      <label className="form-label">Department Category</label>
+                      <select className={`form-input ${fieldErrors.dept_category ? 'error' : ''}`}
+                        value={form.dept_category} onChange={e => update('dept_category', e.target.value)}>
+                        <option value="">— Select Category —</option>
+                        {Object.entries(DEPT_CATEGORIES).map(([val, label]) => (
+                          <option key={val} value={val}>{label}</option>
+                        ))}
+                      </select>
+                      {fieldErrors.dept_category && <p className="form-error">{fieldErrors.dept_category}</p>}
+                    </div>
+
+                    {/* Department */}
+                    {form.dept_category && (
+                      <div>
+                        <label className="form-label">Department</label>
+                        <select className={`form-input ${fieldErrors.department_id ? 'error' : ''}`}
+                          value={form.department_id} onChange={e => update('department_id', e.target.value)}>
+                          <option value="">— Select Department —</option>
+                          {filteredDepts.map(dept => (
+                            <option key={dept.id} value={dept.id}>{dept.name}</option>
+                          ))}
+                        </select>
+                        {fieldErrors.department_id && <p className="form-error">{fieldErrors.department_id}</p>}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Degree Program */}
+                {form.department_id && (
                   <div>
-                    <label className="form-label">
-                      {form.course_type === 'UG' ? 'UG Course' : 'PG Course'}
-                    </label>
+                    <label className="form-label">Degree Program</label>
                     <select className={`form-input ${fieldErrors.branch ? 'error' : ''}`}
                       value={form.branch} onChange={e => update('branch', e.target.value)}>
-                      <option value="">— Select Course —</option>
-                      {availableCourses.map(c => (
-                        <option key={c} value={c}>{c}</option>
+                      <option value="">Select Degree Program</option>
+                      {DEGREE_PROGRAMS.map(prog => (
+                        <option key={prog} value={prog}>{prog}</option>
                       ))}
                     </select>
                     {fieldErrors.branch && <p className="form-error">{fieldErrors.branch}</p>}
