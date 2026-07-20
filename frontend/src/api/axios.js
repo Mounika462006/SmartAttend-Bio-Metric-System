@@ -92,7 +92,7 @@ api.interceptors.response.use(
 
       if (refreshToken) {
         try {
-          const { data } = await axios.post('/api/auth/refresh', { refreshToken });
+          const { data } = await api.post('/auth/refresh', { refreshToken });
           const newToken = data.data.accessToken;
           localStorage.setItem(`${role}_accessToken`, newToken);
           localStorage.setItem('accessToken', newToken);
