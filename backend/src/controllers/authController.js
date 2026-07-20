@@ -49,7 +49,7 @@ async function login(req, res, next) {
       table = 'students';
       const [rows] = await db.query(
         `SELECT s.id, s.name, s.email, s.password_hash, s.status,
-                s.biometric_registered, s.student_id, s.department_id,
+                s.biometric_registered, s.student_id, s.register_number, s.department_id,
                 s.branch, s.year, s.semester, s.is_active,
                 d.name AS department_name
          FROM students s

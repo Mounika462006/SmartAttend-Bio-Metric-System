@@ -92,6 +92,8 @@ export default function AttendanceHistory() {
     }).finally(() => setLoading(false));
   }, [month, year]);
 
+  const currentDate = new Date(year, month - 1, 1);
+
   const exportCSV = () => {
     const headers = [
       'Student Name',
@@ -106,10 +108,15 @@ export default function AttendanceHistory() {
     const rows = records.map(r => {
       const dateStr = r.attendance_date?.split('T')[0] || r.attendance_date;
       const timeStr = r.marked_at ? format(new Date(r.marked_at), 'hh:mm a') : 'N/A';
+      
+      const studentName = user?.name || 'Student';
+      const registerNumber = user?.register_number || user?.student_id || 'N/A';
+      const department = user?.department_name || user?.department || user?.branch || 'N/A';
+
       return [
-        `"${user?.name || ''}"`,
-        `"${user?.student_id || ''}"`,
-        `"${user?.department_name || ''}"`,
+        `"${studentName}"`,
+        `"${registerNumber}"`,
+        `"${department}"`,
         `"${dateStr || ''}"`,
         `"${timeStr}"`,
         `"${r.status || ''}"`,
@@ -128,8 +135,6 @@ export default function AttendanceHistory() {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
-
-  const currentDate = new Date(year, month - 1, 1);
 
   const prevMonth = () => {
     if (month === 1) { setMonth(12); setYear(y => y - 1); }

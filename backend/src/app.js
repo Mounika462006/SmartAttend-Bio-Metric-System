@@ -48,7 +48,23 @@ app.use(cors({
 
     try {
       const parsed = new URL(origin);
-      if (allowedHostnames.includes(parsed.hostname)) {
+      const hostname = parsed.hostname;
+
+      // In development, automatically allow loopback/localhost on any port
+      if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
+        if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') {
+          callback(null, true);
+          return;
+        }
+        // Automatically allow private IPv4 addresses (10.x.x.x, 172.16-31.x.x, 192.168.x.x) on the local network
+        const privateIpRegex = /^(?:10\.\d+\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[0-1])\.\d+\.\d+|192\.168\.\d+\.\d+)$/;
+        if (privateIpRegex.test(hostname)) {
+          callback(null, true);
+          return;
+        }
+      }
+
+      if (allowedHostnames.includes(hostname)) {
         callback(null, true);
         return;
       }
@@ -56,6 +72,7 @@ app.use(cors({
       // falling through to rejection
     }
 
+    console.warn(`[CORS Blocked] Request from origin "${origin}" was rejected. Allowed origins in .env: ${allowedOrigins.join(', ')}`);
     callback(new Error('CORS not allowed'));
   },
   credentials: true,

@@ -1,104 +1,161 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import * as faceapi from 'face-api.js';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// IoU-based Non-Maximum Suppression deduplication
+// ROOT CAUSE FIX for "Multiple faces detected" with one real face:
+// TinyFaceDetector at inputSize=416 runs multiple internal scale pyramids.
+// A single close-up face produces 2-3 overlapping detections at different
+// scales. With scoreThreshold=0.25 all of them pass — hence detections.length>1
+// even with just one person. This deduplication merges overlapping boxes,
+// keeping only the highest-confidence detection per face region.
+// ─────────────────────────────────────────────────────────────────────────────
+const iou = (a, b) => {
+  const x1 = Math.max(a.x, b.x);
+  const y1 = Math.max(a.y, b.y);
+  const x2 = Math.min(a.x + a.width,  b.x + b.width);
+  const y2 = Math.min(a.y + a.height, b.y + b.height);
+  const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  if (inter === 0) return 0;
+  const aArea = a.width * a.height;
+  const bArea = b.width * b.height;
+  return inter / (aArea + bArea - inter);
+};
+
+const deduplicateDetections = (detections, iouThreshold = 0.40) => {
+  // Sort by score descending so highest-confidence comes first
+  const sorted = [...detections].sort(
+    (a, b) => b.detection.score - a.detection.score
+  );
+  const kept = [];
+  for (const det of sorted) {
+    const box = det.detection.box;
+    const overlapsKept = kept.some(k => iou(k.detection.box, box) > iouThreshold);
+    if (!overlapsKept) kept.push(det);
+  }
+  return kept;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Oval guide coordinate mapping
+// Maps the visual oval (displayed via CSS object-cover) back to raw video space
+// ─────────────────────────────────────────────────────────────────────────────
+const isFaceInOval = (box, videoWidth, videoHeight) => {
+  const W_c = 240;
+  const H_c = 288;
+  const scale = Math.max(W_c / videoWidth, H_c / videoHeight);
+  const offsetX = (videoWidth  * scale - W_c) / 2;
+  const offsetY = (videoHeight * scale - H_c) / 2;
+
+  const ovalLeftV   = (W_c * 0.075 + offsetX) / scale;
+  const ovalRightV  = (W_c * 0.925 + offsetX) / scale;
+  const ovalTopV    = (H_c * 0.075 + offsetY) / scale;
+  const ovalBottomV = (H_c * 0.925 + offsetY) / scale;
+
+  const isInside =
+    box.x                  >= (ovalLeftV   - box.width  * 0.15) &&
+    (box.x + box.width)   <= (ovalRightV  + box.width  * 0.15) &&
+    box.y                  >= (ovalTopV    - box.height * 0.15) &&
+    (box.y + box.height)  <= (ovalBottomV + box.height * 0.15);
+
+  const faceArea = box.width * box.height;
+  const ovalArea = (ovalRightV - ovalLeftV) * (ovalBottomV - ovalTopV);
+  const sizeRatio = faceArea / ovalArea;
+
+  return { isInside, sizeRatio };
+};
+
 export function useBlinkDetection() {
   const [livenessStatus, setLivenessStatus] = useState('');
-  const [livenessError, setLivenessError] = useState('');
-  const [isFaceValid, setIsFaceValid] = useState(false);
-  const activeTimeout = useRef(null);
-  const canvasRef = useRef(null);
-  
-  // Tracking history for stability, calibration and blink sequence
-  const lastNosePos = useRef(null);
-  const stableSince = useRef(null);
-  const calibrationEARs = useRef([]);
-  const noseHistory = useRef([]); // tracks nose coordinates over the last 5 frames for blur/shake checks
+  const [livenessError,  setLivenessError]  = useState('');
+  const [isFaceValid,    setIsFaceValid]    = useState(false);
 
-  // Helper to calculate Eye Aspect Ratio (EAR)
+  const activeTimeout     = useRef(null);
+  const canvasRef         = useRef(null);
+  const smoothedScoreRef  = useRef(0.85);
+
+  const lastNosePos      = useRef(null);
+  const stableSince      = useRef(null);
+  const calibrationEARs  = useRef([]);
+  const calibrationMARs  = useRef([]);
+  const calibrationYaws  = useRef([]);
+  const calibrationSmiles = useRef([]);
+  const calibrationBrows = useRef([]);
+  const noseHistory      = useRef([]);
+
+  // ── Shared detector options ───────────────────────────────────────────────
+  const DETECTOR_OPTIONS = new faceapi.TinyFaceDetectorOptions({
+    inputSize: 416,
+    scoreThreshold: 0.25,
+  });
+
+  // ── Helper to calculate distance ──────────────────────────────────────────
+  const getDist = (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y);
+
+  // ── EAR helper ───────────────────────────────────────────────────────────
   const calculateEAR = (eye) => {
-    const dV1 = Math.hypot(eye[1].x - eye[5].x, eye[1].y - eye[5].y);
-    const dV2 = Math.hypot(eye[2].x - eye[4].x, eye[2].y - eye[4].y);
-    const dH = Math.hypot(eye[0].x - eye[3].x, eye[0].y - eye[3].y);
+    const dV1 = getDist(eye[1], eye[5]);
+    const dV2 = getDist(eye[2], eye[4]);
+    const dH  = getDist(eye[0], eye[3]);
+    if (dH < 0.001) return 0.30;
     return (dV1 + dV2) / (2.0 * dH);
   };
 
-  // Helper to calculate average pixel brightness of a video element using a small canvas
+  // ── Brightness helper ────────────────────────────────────────────────────
   const checkBrightness = (video) => {
     try {
       if (!canvasRef.current) {
         canvasRef.current = document.createElement('canvas');
-        canvasRef.current.width = 40;
+        canvasRef.current.width  = 40;
         canvasRef.current.height = 30;
       }
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
+      const ctx = canvasRef.current.getContext('2d');
       ctx.drawImage(video, 0, 0, 40, 30);
-      const imgData = ctx.getImageData(0, 0, 40, 30).data;
-      
-      let totalBrightness = 0;
-      const pixelsCount = imgData.length / 4;
-      for (let i = 0; i < imgData.length; i += 4) {
-        const r = imgData[i];
-        const g = imgData[i + 1];
-        const b = imgData[i + 2];
-        const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
-        totalBrightness += brightness;
+      const data = ctx.getImageData(0, 0, 40, 30).data;
+      let total = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        total += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
       }
-      return totalBrightness / pixelsCount; // Scale of 0 - 255
-    } catch (e) {
-      return 120; // safe fallback
+      return total / (data.length / 4);
+    } catch {
+      return 120;
     }
   };
 
-  // Dynamic liveness status update helpers to avoid unnecessary renders
+  // ── Status/Error update helpers (avoid unnecessary re-renders) ───────────
   const lastStatus = useRef('');
-  const lastError = useRef('');
-  const updateStatus = (statusText) => {
-    if (statusText !== lastStatus.current) {
-      lastStatus.current = statusText;
-      setLivenessStatus(statusText);
-    }
+  const lastError  = useRef('');
+
+  const updateStatus = (text) => {
+    if (text !== lastStatus.current) { lastStatus.current = text; setLivenessStatus(text); }
   };
-  const updateError = (errorText) => {
-    if (errorText !== lastError.current) {
-      lastError.current = errorText;
-      setLivenessError(errorText);
-    }
+  const updateError = (text) => {
+    if (text !== lastError.current) { lastError.current = text; setLivenessError(text); }
   };
 
+  // ──────────────────────────────────────────────────────────────────────────
   // WORKFLOW 1: Face validation loop for MANUAL image capture (Registration)
+  // ──────────────────────────────────────────────────────────────────────────
   const startFaceValidation = useCallback((webcamRef) => {
-    // Clear any existing active timeouts
-    if (activeTimeout.current) {
-      clearTimeout(activeTimeout.current);
-    }
-    
+    if (activeTimeout.current) clearTimeout(activeTimeout.current);
+
     setLivenessStatus('');
     setLivenessError('');
     setIsFaceValid(false);
-    lastNosePos.current = null;
-    stableSince.current = null;
-    noseHistory.current = [];
+    lastNosePos.current    = null;
+    stableSince.current    = null;
+    noseHistory.current    = [];
+    smoothedScoreRef.current = 0.85;
 
     const videoElement = webcamRef?.current?.video;
-    if (!videoElement) {
-      updateError('No camera detected.');
-      return;
-    }
-
-    const DETECTOR_OPTIONS = new faceapi.TinyFaceDetectorOptions({
-      inputSize: 416,
-      scoreThreshold: 0.25,
-    });
+    if (!videoElement) { updateError('No camera detected.'); return; }
 
     let isRunning = true;
-
     updateStatus('Position your face inside the oval.');
 
     const loop = async () => {
       if (!isRunning) return;
 
-      // Mock mode bypass check for automation testing
       if (window.location.search.includes('mock=true')) {
         updateError('');
         updateStatus('Face detected successfully.');
@@ -107,45 +164,32 @@ export function useBlinkDetection() {
         return;
       }
 
-      // Unmount safety check
-      if (!webcamRef.current?.video) {
-        isRunning = false;
-        return;
-      }
+      if (!webcamRef.current?.video) { isRunning = false; return; }
 
-      const video = webcamRef.current.video;
-
-      // Check stream state
+      const video  = webcamRef.current.video;
       const stream = video.srcObject;
-      const isStreamActive = stream && stream.getTracks && stream.getTracks().some(track => track.readyState === 'live');
+      const isStreamActive = stream && stream.getTracks && stream.getTracks().some(t => t.readyState === 'live');
       if (video.ended || (stream && !isStreamActive)) {
         isRunning = false;
         updateError('Camera permission is required to continue.');
         return;
       }
 
-      if (video.readyState < 2) {
-        activeTimeout.current = setTimeout(loop, 40);
-        return;
-      }
+      if (video.readyState < 2) { activeTimeout.current = setTimeout(loop, 40); return; }
 
       try {
-        // Lighting Check
         const brightness = checkBrightness(video);
-        if (brightness < 45) {
+        if (brightness < 40) {
           updateError('Lighting is too low. Move to a brighter area.');
-          updateStatus('Position your face inside the oval.');
           setIsFaceValid(false);
           stableSince.current = null;
           activeTimeout.current = setTimeout(loop, 40);
           return;
         }
 
-        const detections = await faceapi
-          .detectAllFaces(video, DETECTOR_OPTIONS)
-          .withFaceLandmarks();
+        const raw = await faceapi.detectAllFaces(video, DETECTOR_OPTIONS).withFaceLandmarks();
+        const detections = deduplicateDetections(raw);
 
-        // 1. No Face Detected
         if (detections.length === 0) {
           updateError('No face detected. Please position your face inside the oval.');
           updateStatus('Position your face inside the oval.');
@@ -154,229 +198,161 @@ export function useBlinkDetection() {
           activeTimeout.current = setTimeout(loop, 40);
           return;
         }
-
-        // 2. Multiple Faces Detected
         if (detections.length > 1) {
           updateError('Multiple faces detected. Only one person should be visible.');
-          updateStatus('Position your face inside the oval.');
           setIsFaceValid(false);
           stableSince.current = null;
           activeTimeout.current = setTimeout(loop, 40);
           return;
         }
 
-        const detection = detections[0];
+        const det  = detections[0];
+        const score = det.detection.score;
+        smoothedScoreRef.current = smoothedScoreRef.current * 0.75 + score * 0.25;
 
-        // 3. Score confidence checks
-        if (detection.detection.score < 0.85) {
+        if (smoothedScoreRef.current < 0.65) {
           updateError('Face confidence low. Please look straight and keep steady.');
-          updateStatus('Position your face inside the oval.');
           setIsFaceValid(false);
           stableSince.current = null;
           activeTimeout.current = setTimeout(loop, 40);
           return;
         }
 
-        const box = detection.detection.box;
-        const landmarks = detection.landmarks.positions;
-        const videoWidth = video.videoWidth;
-        const videoHeight = video.videoHeight;
+        const box       = det.detection.box;
+        const landmarks = det.landmarks.positions;
+        const { isInside, sizeRatio } = isFaceInOval(box, video.videoWidth, video.videoHeight);
 
-        // Normalized coordinates
-        const faceX = (box.x + box.width / 2) / videoWidth;
-        const faceY = (box.y + box.height / 2) / videoHeight;
-        const faceW = box.width / videoWidth;
-        const faceH = box.height / videoHeight;
-
-        // 4. Face proximity check (Too close / Too far)
-        if (faceW > 0.65 || faceH > 0.75) {
-          updateError('You are too close. Move slightly backward.');
-          updateStatus('Position your face inside the oval.');
-          setIsFaceValid(false);
-          stableSince.current = null;
-          activeTimeout.current = setTimeout(loop, 40);
-          return;
-        }
-        if (faceW < 0.23 || faceH < 0.32) {
-          updateError('You are too far away. Move closer to the camera.');
-          updateStatus('Position your face inside the oval.');
-          setIsFaceValid(false);
-          stableSince.current = null;
-          activeTimeout.current = setTimeout(loop, 40);
-          return;
-        }
-
-        // 5. Centered check
-        if (faceX < 0.35 || faceX > 0.65 || faceY < 0.30 || faceY > 0.70) {
+        if (!isInside) {
           updateError('Move your face inside the oval guide.');
-          updateStatus('Position your face inside the oval.');
+          setIsFaceValid(false);
+          stableSince.current = null;
+          activeTimeout.current = setTimeout(loop, 40);
+          return;
+        }
+        if (sizeRatio > 0.92) {
+          updateError('You are too close. Move slightly backward.');
+          setIsFaceValid(false);
+          stableSince.current = null;
+          activeTimeout.current = setTimeout(loop, 40);
+          return;
+        }
+        if (sizeRatio < 0.35) {
+          updateError('You are too far away. Move closer to the camera.');
           setIsFaceValid(false);
           stableSince.current = null;
           activeTimeout.current = setTimeout(loop, 40);
           return;
         }
 
-        // 6. Pose Orientation yaw checks (Straight head)
-        const noseX = landmarks[27].x;
-        const leftEdgeX = landmarks[0].x;
-        const rightEdgeX = landmarks[16].x;
-        const distLeft = Math.abs(noseX - leftEdgeX);
-        const distRight = Math.abs(rightEdgeX - noseX);
-        const totalWidth = distLeft + distRight;
-        const yawRatio = totalWidth > 0 ? distLeft / totalWidth : 0.5;
-
-        if (yawRatio < 0.25 || yawRatio > 0.75) {
+        const noseX      = landmarks[27].x;
+        const faceLeft   = landmarks[0].x;
+        const faceRight  = landmarks[16].x;
+        const faceW      = Math.abs(faceRight - faceLeft);
+        const yawRatio   = faceW > 0 ? Math.abs(noseX - faceLeft) / faceW : 0.5;
+        if (yawRatio < 0.23 || yawRatio > 0.77) {
           updateError('Please look directly at the camera.');
-          updateStatus('Look directly at the camera.');
           setIsFaceValid(false);
           stableSince.current = null;
           activeTimeout.current = setTimeout(loop, 40);
           return;
         }
 
-        // 7. Face position stability checks
         const currentNose = landmarks[27];
-        let isStable = false;
-
         noseHistory.current.push({ x: currentNose.x, y: currentNose.y });
-        if (noseHistory.current.length > 5) {
-          noseHistory.current.shift();
-        }
+        if (noseHistory.current.length > 5) noseHistory.current.shift();
 
+        let frameMove = 0;
         if (lastNosePos.current) {
-          const movement = Math.hypot(currentNose.x - lastNosePos.current.x, currentNose.y - lastNosePos.current.y);
-          if (movement < box.width * 0.05) {
-            isStable = true;
-          }
-        } else {
-          isStable = true;
+          frameMove = Math.hypot(
+            currentNose.x - lastNosePos.current.x,
+            currentNose.y - lastNosePos.current.y
+          );
         }
         lastNosePos.current = currentNose;
 
-        if (noseHistory.current.length >= 4) {
-          const xs = noseHistory.current.map(p => p.x);
-          const ys = noseHistory.current.map(p => p.y);
-          const maxDX = Math.max(...xs) - Math.min(...xs);
-          const maxDY = Math.max(...ys) - Math.min(...ys);
-          if (maxDX > box.width * 0.08 || maxDY > box.width * 0.08) {
-            isStable = false; // motion/camera shake detected
-          }
-        }
-
-        if (!isStable) {
+        if (frameMove > box.width * 0.07) {
           stableSince.current = null;
           setIsFaceValid(false);
           updateError('Keep your head still.');
-          updateStatus('Look directly at the camera.');
           activeTimeout.current = setTimeout(loop, 40);
           return;
         }
 
-        const now = Date.now();
-        if (!stableSince.current) {
-          stableSince.current = now;
-        }
+        if (!stableSince.current) stableSince.current = Date.now();
 
-        // Complete Validation confirmed
         updateError('');
         updateStatus('Face detected successfully.');
         setIsFaceValid(true);
-
         activeTimeout.current = setTimeout(loop, 40);
+
       } catch (err) {
-        console.error('[Face Validation Loop Error]', err);
+        console.error('[Face Validation Error]', err);
         activeTimeout.current = setTimeout(loop, 40);
       }
     };
 
     activeTimeout.current = setTimeout(loop, 50);
-
-    return () => {
-      isRunning = false;
-    };
+    return () => { isRunning = false; };
   }, []);
 
-  // Post-capture quality validation helper (Registration manual verification)
+  // ──────────────────────────────────────────────────────────────────────────
+  // Post-capture quality validation (Registration)
+  // ──────────────────────────────────────────────────────────────────────────
   const validateCaptureQuality = useCallback(async (imageSrc) => {
     if (window.location.search.includes('mock=true')) {
-      const dummyDescriptor = new Float32Array(128);
-      dummyDescriptor.fill(0.1);
-      return Array.from(dummyDescriptor);
+      const d = new Float32Array(128); d.fill(0.1);
+      return Array.from(d);
     }
 
-    const DETECTOR_OPTIONS = new faceapi.TinyFaceDetectorOptions({
-      inputSize: 416,
-      scoreThreshold: 0.25,
-    });
+    const img        = await faceapi.fetchImage(imageSrc);
+    const raw        = await faceapi.detectAllFaces(img, DETECTOR_OPTIONS).withFaceLandmarks().withFaceDescriptors();
+    const detections = deduplicateDetections(raw);
 
-    const img = await faceapi.fetchImage(imageSrc);
-    const detections = await faceapi
-      .detectAllFaces(img, DETECTOR_OPTIONS)
-      .withFaceLandmarks()
-      .withFaceDescriptors();
+    if (detections.length === 0) throw new Error('No face detected. Please position your face inside the oval.');
+    if (detections.length > 1)  throw new Error('Multiple faces detected. Only one person should be visible.');
 
-    if (detections.length === 0) {
-      throw new Error('No face detected. Please position your face inside the oval.');
-    }
-    if (detections.length > 1) {
-      throw new Error('Multiple faces detected. Only one person should be visible.');
-    }
+    const det       = detections[0];
+    const box       = det.detection.box;
+    const landmarks = det.landmarks.positions;
 
-    const finalDet = detections[0];
-    const box = finalDet.detection.box;
-    const landmarks = finalDet.landmarks.positions;
-
-    const faceX = (box.x + box.width / 2) / img.width;
+    const faceX = (box.x + box.width  / 2) / img.width;
     const faceY = (box.y + box.height / 2) / img.height;
-    const faceW = box.width / img.width;
-    const faceH = box.height / img.height;
+    const faceW = box.width  / img.width;
 
-    // Visibility of key features
-    // Eyes: 36-47, Nose: 27-35, Mouth: 48-67
+    if (faceX < 0.28 || faceX > 0.72 || faceY < 0.22 || faceY > 0.78) throw new Error('Move your face inside the oval guide.');
+    if (faceW < 0.18) throw new Error('You are too far away. Move closer to the camera.');
+    if (faceW > 0.72) throw new Error('You are too close. Move slightly backward.');
+
     const leftEye = landmarks.slice(36, 42);
     const rightEye = landmarks.slice(42, 48);
-    const noseBridge = landmarks.slice(27, 31);
-    const mouth = landmarks.slice(48, 68);
+    if (!leftEye.length || !rightEye.length) throw new Error('Eyes are not fully visible. Remove items blocking your face.');
 
-    if (leftEye.length === 0 || rightEye.length === 0) {
-      throw new Error('Eyes are not fully visible. Remove items blocking your face.');
-    }
-    if (noseBridge.length === 0) {
-      throw new Error('Nose is not fully visible.');
-    }
-    if (mouth.length === 0) {
-      throw new Error('Mouth is not fully visible.');
-    }
+    // Development debug logging
+    console.log('[Biometric Debug] Captured image validated:');
+    console.log(`  - Embedding dimensions: ${det.descriptor.length}`);
+    console.log(`  - Face quality score (detector confidence): ${det.detection.score.toFixed(3)}`);
 
-    // Alignment and size checks
-    if (faceX < 0.35 || faceX > 0.65 || faceY < 0.30 || faceY > 0.70) {
-      throw new Error('Move your face inside the oval guide.');
-    }
-    if (faceW < 0.23) {
-      throw new Error('You are too far away. Move closer to the camera.');
-    }
-    if (faceW > 0.65) {
-      throw new Error('You are too close. Move slightly backward.');
-    }
-
-    return Array.from(finalDet.descriptor);
+    return Array.from(det.descriptor);
   }, []);
 
-
-  // WORKFLOW 2: AUTOMATIC Biometric Liveness Capture (Attendance)
+  // ──────────────────────────────────────────────────────────────────────────
+  // WORKFLOW 2: Automatic Biometric Liveness Capture (Attendance)
+  // ──────────────────────────────────────────────────────────────────────────
   const startBlinkDetection = useCallback((webcamRef) => {
     return new Promise((resolve) => {
-      // Clear any existing active timeouts
-      if (activeTimeout.current) {
-        clearTimeout(activeTimeout.current);
-      }
-      
+      if (activeTimeout.current) clearTimeout(activeTimeout.current);
+
       updateStatus('Position your face inside the oval.');
       updateError('');
-      lastNosePos.current = null;
-      stableSince.current = null;
-      calibrationEARs.current = [];
-      noseHistory.current = [];
+      lastNosePos.current      = null;
+      stableSince.current      = null;
+      calibrationEARs.current  = [];
+      calibrationMARs.current  = [];
+      calibrationYaws.current  = [];
+      calibrationSmiles.current = [];
+      calibrationBrows.current  = [];
+      noseHistory.current      = [];
+      smoothedScoreRef.current = 0.85;
 
       const videoElement = webcamRef?.current?.video;
       if (!videoElement) {
@@ -386,57 +362,55 @@ export function useBlinkDetection() {
         return;
       }
 
-      const DETECTOR_OPTIONS = new faceapi.TinyFaceDetectorOptions({
-        inputSize: 416,
-        scoreThreshold: 0.25,
-      });
+      // ── Challenge List ────────────────────────────────────────────────────
+      const CHALLENGES = [
+        { type: 'blink', instruction: 'Please blink naturally once.' },
+        { type: 'turn_left', instruction: 'Turn your head to the left.' },
+        { type: 'turn_right', instruction: 'Turn your head to the right.' },
+        { type: 'open_mouth', instruction: 'Please open your mouth.' },
+        { type: 'smile', instruction: 'Please smile.' },
+        { type: 'raise_eyebrows', instruction: 'Please raise your eyebrows.' }
+      ];
 
-      // Liveness tracking state variables
+      // ── Loop state ────────────────────────────────────────────────────────
       let isRunning = true;
-      let isLivenessVerified = false;
+      let phase = 'align'; // 'align' | 'calib' | 'challenge' | 'done'
+      let activeChallenge = null;
 
-      // Advanced Blink Validation State Machine Sequence
-      // Sequence states: 
-      // 0 = OPEN
-      // 1 = CLOSING
-      // 2 = CLOSED
-      // 3 = OPENING
-      // 4 = VERIFIED (Success)
-      let blinkState = 0; 
-      let openFramesCount = 0;
-      let closedStartTime = 0;
-      let blinkFailuresCount = 0;
-      let blinkFailureTimestamp = 0;
+      // Challenge validation state variables
+      let blinkState = 0;        // 0=OPEN, 1=CLOSING, 2=CLOSED, 3=OPENING
+      let challengeSuccessFrames = 0; // consecutive frames verifying the condition
+      let closedFrameCount = 0;
+      let openFrameCount = 0;
 
+      let challengeTimeoutAt = 0;
+      let frameCount = 0;
+
+      // ── Main loop ─────────────────────────────────────────────────────────
       const loop = async () => {
         if (!isRunning) return;
 
-        // Mock mode bypass check for automation testing
         if (window.location.search.includes('mock=true')) {
           isRunning = false;
-          const dummyDescriptor = new Float32Array(128);
-          dummyDescriptor.fill(0.1);
+          const d = new Float32Array(128); d.fill(0.1);
           updateStatus('Face captured successfully.');
           resolve({
             success: true,
             imageSrc: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-            descriptor: Array.from(dummyDescriptor)
+            descriptor: Array.from(d)
           });
           return;
         }
 
-        // Unmount safety check
         if (!webcamRef.current?.video) {
           isRunning = false;
           resolve({ success: false, reason: 'Camera feed unavailable.' });
           return;
         }
 
-        const video = webcamRef.current.video;
-
-        // Check if stream stopped
+        const video  = webcamRef.current.video;
         const stream = video.srcObject;
-        const isStreamActive = stream && stream.getTracks && stream.getTracks().some(track => track.readyState === 'live');
+        const isStreamActive = stream && stream.getTracks && stream.getTracks().some(t => t.readyState === 'live');
         if (video.ended || (stream && !isStreamActive)) {
           isRunning = false;
           const err = 'Camera permission is required to continue.';
@@ -445,367 +419,395 @@ export function useBlinkDetection() {
           return;
         }
 
-        // Wait until video has valid frames
         if (video.readyState < 2) {
           activeTimeout.current = setTimeout(loop, 40);
           return;
         }
 
+        frameCount++;
+        const now = Date.now();
+
         try {
-          // 1. Lighting Check
+          // ── 1. Brightness ───────────────────────────────────────────────
           const brightness = checkBrightness(video);
-          if (brightness < 45) {
+          if (brightness < 35) {
             updateError('Lighting is too low. Move to a brighter area.');
             updateStatus('Position your face inside the oval.');
-            stableSince.current = null;
-            blinkState = 0;
+            if (phase === 'align') stableSince.current = null;
             activeTimeout.current = setTimeout(loop, 40);
             return;
           }
 
-          const detections = await faceapi
-            .detectAllFaces(video, DETECTOR_OPTIONS)
-            .withFaceLandmarks();
+          // ── 2. Face detection ─────────────────────────────────────────────
+          const raw        = await faceapi.detectAllFaces(video, DETECTOR_OPTIONS).withFaceLandmarks();
+          const detections = deduplicateDetections(raw);
 
-          // 2. No Face Detected
           if (detections.length === 0) {
             updateError('No face detected. Please position your face inside the oval.');
             updateStatus('Position your face inside the oval.');
             stableSince.current = null;
+            phase = 'align';
+            activeChallenge = null;
             blinkState = 0;
+            challengeSuccessFrames = 0;
             activeTimeout.current = setTimeout(loop, 40);
             return;
           }
 
-          // 3. Multiple Faces Detected
           if (detections.length > 1) {
             updateError('Multiple faces detected. Only one person should be visible.');
             updateStatus('Position your face inside the oval.');
             stableSince.current = null;
+            phase = 'align';
+            activeChallenge = null;
             blinkState = 0;
             activeTimeout.current = setTimeout(loop, 40);
             return;
           }
 
-          const detection = detections[0];
+          const det   = detections[0];
+          const score = det.detection.score;
 
-          // 4. Face confidence check
-          if (detection.detection.score < 0.85) {
+          // ── 3. EMA confidence ───────────────────────────────────────────
+          smoothedScoreRef.current = smoothedScoreRef.current * 0.75 + score * 0.25;
+          const minConfidence = phase === 'challenge' ? 0.40 : 0.50;
+          if (smoothedScoreRef.current < minConfidence) {
             updateError('Face confidence low. Please look straight and keep steady.');
-            updateStatus('Position your face inside the oval.');
-            stableSince.current = null;
-            blinkState = 0;
+            if (phase === 'align') stableSince.current = null;
             activeTimeout.current = setTimeout(loop, 40);
             return;
           }
 
-          const box = detection.detection.box;
-          const landmarks = detection.landmarks.positions;
-          const videoWidth = video.videoWidth;
-          const videoHeight = video.videoHeight;
+          const box       = det.detection.box;
+          const landmarks = det.landmarks.positions;
 
-          // Normalized dimensions
-          const faceX = (box.x + box.width / 2) / videoWidth;
-          const faceY = (box.y + box.height / 2) / videoHeight;
-          const faceW = box.width / videoWidth;
-          const faceH = box.height / videoHeight;
-
-          // 5. Face Size Checks (Too close / Too far)
-          if (faceW > 0.65 || faceH > 0.75) {
-            updateError('You are too close. Move slightly backward.');
-            updateStatus('Position your face inside the oval.');
-            stableSince.current = null;
-            blinkState = 0;
-            activeTimeout.current = setTimeout(loop, 40);
-            return;
-          }
-          if (faceW < 0.23 || faceH < 0.32) {
-            updateError('You are too far away. Move closer to the camera.');
-            updateStatus('Position your face inside the oval.');
-            stableSince.current = null;
-            blinkState = 0;
-            activeTimeout.current = setTimeout(loop, 40);
-            return;
-          }
-
-          // 6. Face bounds alignment checks (Centered)
-          if (faceX < 0.35 || faceX > 0.65 || faceY < 0.30 || faceY > 0.70) {
+          // ── 4. Face in oval ─────────────────────────────────────────────
+          const { isInside, sizeRatio } = isFaceInOval(box, video.videoWidth, video.videoHeight);
+          if (!isInside) {
             updateError('Move your face inside the oval guide.');
             updateStatus('Position your face inside the oval.');
             stableSince.current = null;
-            blinkState = 0;
+            phase = 'align'; activeChallenge = null; blinkState = 0;
             activeTimeout.current = setTimeout(loop, 40);
             return;
           }
 
-          // 7. Pose Orientation Checks (Yaw, Pitch, Roll straight)
-          // Yaw: nose bridge vs face edges
-          const noseX = landmarks[27].x;
-          const leftEdgeX = landmarks[0].x;
-          const rightEdgeX = landmarks[16].x;
-          const distLeft = Math.abs(noseX - leftEdgeX);
-          const distRight = Math.abs(rightEdgeX - noseX);
-          const totalWidth = distLeft + distRight;
-          const yawRatio = totalWidth > 0 ? distLeft / totalWidth : 0.5;
+          // ── 5. Face size ────────────────────────────────────────────────
+          if (sizeRatio > 0.96) {
+            updateError('You are too close. Move slightly backward.');
+            activeTimeout.current = setTimeout(loop, 40);
+            return;
+          }
+          if (sizeRatio < 0.32) {
+            updateError('You are too far away. Move closer to the camera.');
+            activeTimeout.current = setTimeout(loop, 40);
+            return;
+          }
 
-          // Pitch: nose bridge vs nose tip vs chin vertical distribution
-          const distUpper = Math.abs(landmarks[27].y - landmarks[33].y);
-          const distLower = Math.abs(landmarks[33].y - landmarks[8].y);
-          const pitchRatio = distLower > 0 ? distUpper / distLower : 0.35;
+          // ── 6. Pose/Yaw ratio ───────────────────────────────────────────
+          const noseX     = landmarks[27].x;
+          const faceLeft  = landmarks[0].x;
+          const faceRight = landmarks[16].x;
+          const faceW     = Math.abs(faceRight - faceLeft);
+          const yawRatio  = faceW > 0 ? Math.abs(noseX - faceLeft) / faceW : 0.5;
 
-          // Roll: Eye centers tilt angle
-          const leftEyePoints = landmarks.slice(36, 42);
-          const rightEyePoints = landmarks.slice(42, 48);
-          const leftEyeCenter = {
-            x: leftEyePoints.reduce((acc, p) => acc + p.x, 0) / 6,
-            y: leftEyePoints.reduce((acc, p) => acc + p.y, 0) / 6,
-          };
-          const rightEyeCenter = {
-            x: rightEyePoints.reduce((acc, p) => acc + p.x, 0) / 6,
-            y: rightEyePoints.reduce((acc, p) => acc + p.y, 0) / 6,
-          };
-          const rollAngle = Math.abs(Math.atan2(rightEyeCenter.y - leftEyeCenter.y, rightEyeCenter.x - leftEyeCenter.x) * (180 / Math.PI));
+          // Lenient bounds during active side-turns
+          const isTurnChallenge = activeChallenge?.type === 'turn_left' || activeChallenge?.type === 'turn_right';
+          const yawMin = (phase === 'challenge' && isTurnChallenge) ? 0.12 : 0.22;
+          const yawMax = (phase === 'challenge' && isTurnChallenge) ? 0.88 : 0.78;
 
-          // Enforce straight head pose
-          if (yawRatio < 0.25 || yawRatio > 0.75) {
+          if (yawRatio < yawMin || yawRatio > yawMax) {
             updateError('Please look directly at the camera.');
-            updateStatus('Look directly at the camera.');
-            stableSince.current = null;
-            blinkState = 0;
-            activeTimeout.current = setTimeout(loop, 40);
-            return;
-          }
-          if (pitchRatio < 0.05 || pitchRatio > 1.20) {
-            updateError('Please look directly at the camera.');
-            updateStatus('Look directly at the camera.');
-            stableSince.current = null;
-            blinkState = 0;
-            activeTimeout.current = setTimeout(loop, 40);
-            return;
-          }
-          if (rollAngle > 30) {
-            updateError('Please look directly at the camera.');
-            updateStatus('Look directly at the camera.');
-            stableSince.current = null;
-            blinkState = 0;
+            if (phase === 'align') { stableSince.current = null; }
             activeTimeout.current = setTimeout(loop, 40);
             return;
           }
 
-          // 8. Stability and Motion Blur Checks
+          // ── 7. Head stability ────────────────────────────────────────────
           const currentNose = landmarks[27];
-          let isStable = false;
-
-          noseHistory.current.push({ x: currentNose.x, y: currentNose.y });
-          if (noseHistory.current.length > 5) {
-            noseHistory.current.shift();
-          }
-
+          let frameMove = 0;
           if (lastNosePos.current) {
-            const movement = Math.hypot(currentNose.x - lastNosePos.current.x, currentNose.y - lastNosePos.current.y);
-            // Must not move more than 5% of face width
-            if (movement < box.width * 0.05) {
-              isStable = true;
-            }
-          } else {
-            isStable = true;
+            frameMove = Math.hypot(
+              currentNose.x - lastNosePos.current.x,
+              currentNose.y - lastNosePos.current.y
+            );
           }
           lastNosePos.current = currentNose;
 
-          if (noseHistory.current.length >= 4) {
-            const xs = noseHistory.current.map(p => p.x);
-            const ys = noseHistory.current.map(p => p.y);
-            const maxDX = Math.max(...xs) - Math.min(...xs);
-            const maxDY = Math.max(...ys) - Math.min(...ys);
-            if (maxDX > box.width * 0.08 || maxDY > box.width * 0.08) {
-              isStable = false; // Camera shake detected
+          noseHistory.current.push({ x: currentNose.x, y: currentNose.y });
+          if (noseHistory.current.length > 6) noseHistory.current.shift();
+
+          let frameThresh;
+          if (phase !== 'challenge') frameThresh = box.width * 0.05;
+          else if (activeChallenge?.type === 'blink') frameThresh = box.width * 0.12; // allow minor eye blink movement
+          else frameThresh = box.width * 0.25; // other challenges naturally involve some movement
+
+          if (frameMove > frameThresh) {
+            if (phase !== 'challenge') {
+              stableSince.current = null;
+              updateError('Keep your head steady.');
+              activeTimeout.current = setTimeout(loop, 40);
+              return;
+            }
+            // Extreme movement abort check
+            if (frameMove > box.width * 0.45) {
+              phase = 'align';
+              stableSince.current = null;
+              activeChallenge = null;
+              updateError('Too much motion. Please hold still and try again.');
+              activeTimeout.current = setTimeout(loop, 40);
+              return;
             }
           }
 
-          if (!isStable) {
-            stableSince.current = null;
-            blinkState = 0;
-            updateError('Keep your head steady.');
-            updateStatus('Look directly at the camera.');
-            activeTimeout.current = setTimeout(loop, 40);
-            return;
-          }
-
-          // Start stable timer
-          const now = Date.now();
-          if (!stableSince.current) {
-            stableSince.current = now;
-          }
-
+          if (!stableSince.current) stableSince.current = now;
           const stableDuration = now - stableSince.current;
 
-          // Clear any error states since alignment is fully confirmed
-          // Unless we are actively displaying the friendly warning about a failed blink
-          const isWarningBlinkFailure = blinkFailuresCount > 0 && (now - blinkFailureTimestamp < 6000);
-          if (!isWarningBlinkFailure) {
+          // ── 8. Landmark metrics calculations ──────────────────────────────
+          // EAR (Eyes)
+          const leftEyePoints  = landmarks.slice(36, 42);
+          const rightEyePoints = landmarks.slice(42, 48);
+          const ear = (calculateEAR(leftEyePoints) + calculateEAR(rightEyePoints)) / 2.0;
+
+          // MAR (Mouth inner aspect ratio)
+          const mar = getDist(landmarks[62], landmarks[66]) / Math.max(0.001, getDist(landmarks[60], landmarks[64]));
+
+          // Smile ratio (mouth width relative to face width)
+          const smileRatio = getDist(landmarks[48], landmarks[54]) / Math.max(0.001, faceW);
+
+          // Eyebrow ratio (eyebrows to eyes vertical distance)
+          const eyebrowDist = (getDist(landmarks[19], landmarks[37]) + getDist(landmarks[24], landmarks[44])) / 2.0 / Math.max(0.001, faceW);
+
+          // ── 9. Calibration phase ─────────────────────────────────────────
+          if (phase === 'align' || phase === 'calib') {
+            if (stableDuration < 600) {
+              phase = 'calib';
+              updateStatus('Hold still...');
+              updateError('');
+              if (ear >= 0.16 && ear <= 0.55) calibrationEARs.current.push(ear);
+              calibrationMARs.current.push(mar);
+              calibrationYaws.current.push(yawRatio);
+              calibrationSmiles.current.push(smileRatio);
+              calibrationBrows.current.push(eyebrowDist);
+              activeTimeout.current = setTimeout(loop, 40);
+              return;
+            }
+
+            // Enter challenge phase and randomly select one
+            phase = 'challenge';
+            const randomIndex = Math.floor(Math.random() * CHALLENGES.length);
+            activeChallenge = CHALLENGES[randomIndex];
+            challengeTimeoutAt = now + 9000; // 9 seconds to complete the challenge
+            challengeSuccessFrames = 0;
+            blinkState = 0;
+            closedFrameCount = 0;
+            openFrameCount = 0;
+            updateStatus(activeChallenge.instruction);
             updateError('');
           }
 
-          // 9. Dynamic baseline calibration (First 2000ms is calibration/stability)
-          const leftEAR = calculateEAR(leftEyePoints);
-          const rightEAR = calculateEAR(rightEyePoints);
-          const ear = (leftEAR + rightEAR) / 2.0;
+          // ── 10. Baselines and Thresholds ──────────────────────────────────
+          const getBase = (arr, def) => arr.length >= 3 ? arr.reduce((a,b)=>a+b,0)/arr.length : def;
+          const baseEAR = getBase(calibrationEARs.current, 0.27);
+          const baseMAR = getBase(calibrationMARs.current, 0.10);
+          const baseYaw = getBase(calibrationYaws.current, 0.50);
+          const baseSmile = getBase(calibrationSmiles.current, 0.32);
+          const baseBrows = getBase(calibrationBrows.current, 0.20);
 
-          if (stableDuration < 1000) {
-            updateStatus('Keep your head steady.');
-            if (ear >= 0.24 && ear <= 0.42) {
-              calibrationEARs.current.push(ear);
-              if (calibrationEARs.current.length > 25) {
-                calibrationEARs.current.shift();
-              }
-            }
-          } else {
-            // Stability achieved and baseline calibrated
-            if (!isWarningBlinkFailure) {
-              updateStatus('Please blink naturally once.');
-            }
+          const closeThreshold   = baseEAR * 0.60;
+          const closingThreshold = baseEAR * 0.74;
+          const openThreshold    = baseEAR * 0.84;
 
-            const sumEAR = calibrationEARs.current.reduce((a, b) => a + b, 0);
-            const baseEAR = calibrationEARs.current.length >= 5
-              ? sumEAR / calibrationEARs.current.length
-              : 0.30;
+          // ── 11. Challenge verification state machine ──────────────────────
+          let verified = false;
 
-            const closeThreshold = baseEAR * 0.65;      // Fully closed
-            const closingThreshold = baseEAR * 0.76;    // Midpoint down
-            const openingThreshold = baseEAR * 0.76;    // Midpoint up
-            const openThreshold = baseEAR * 0.85;       // Fully open
-
-            // Blink sequence state machine transitions
-            if (blinkState === 0) { // OPEN
-              if (ear > openThreshold) {
-                openFramesCount++;
-              } else {
-                openFramesCount = 0;
-              }
-              
-              if (ear < closingThreshold && openFramesCount >= 1) {
-                blinkState = 1; // Transition: CLOSING
-                console.log('[Liveness] State: OPEN -> CLOSING', ear.toFixed(3));
-              }
-            } else if (blinkState === 1) { // CLOSING
+          if (activeChallenge.type === 'blink') {
+            // Blink Sequence State Machine
+            if (blinkState === 0) {
+              if (ear > openThreshold) openFrameCount++;
+              else openFrameCount = 0;
+              if (ear < closingThreshold) { blinkState = 1; closedFrameCount = 0; }
+            } else if (blinkState === 1) {
               if (ear < closeThreshold) {
-                blinkState = 2; // Transition: CLOSED
-                closedStartTime = now;
-                console.log('[Liveness] State: CLOSING -> CLOSED', ear.toFixed(3));
+                closedFrameCount++;
+                if (closedFrameCount >= 1) blinkState = 2;
               } else if (ear > openThreshold) {
-                // Aborted/incomplete blink, reset
                 blinkState = 0;
-                openFramesCount = 0;
               }
-            } else if (blinkState === 2) { // CLOSED
-              if (ear > openingThreshold) {
-                const duration = now - closedStartTime;
-                if (duration >= 80 && duration <= 500) {
-                  blinkState = 3; // Transition: OPENING
-                  console.log('[Liveness] State: CLOSED -> OPENING', ear.toFixed(3), `duration: ${duration}ms`);
+            } else if (blinkState === 2) {
+              if (ear < closeThreshold) closedFrameCount++;
+              if (ear > closingThreshold) {
+                if (closedFrameCount >= 1 && closedFrameCount <= 20) {
+                  blinkState = 3;
+                  openFrameCount = 0;
                 } else {
-                  console.log('[Liveness] State: CLOSED -> OPEN (Blink duration out of range)', duration);
                   blinkState = 0;
-                  openFramesCount = 0;
+                  closedFrameCount = 0;
                 }
               }
-            } else if (blinkState === 3) { // OPENING
-              if (ear > openThreshold) {
-                blinkState = 4; // Transition: VERIFIED
-                updateStatus('Blink detected.');
-                console.log('[Liveness] State: OPENING -> VERIFIED. Blink sequence fully validated!');
-                
-                isRunning = false; // Stop active check loop
-
-                // Wait 500ms and run dynamic re-verification capture logic
-                setTimeout(async () => {
-                  try {
-                    // Double check stream validity
-                    if (!webcamRef.current?.video) {
-                      resolve({ success: false, reason: 'Face lost. Please position your face inside the oval again.' });
-                      return;
-                    }
-                    
-                    const verifyVideo = webcamRef.current.video;
-                    const finalDetections = await faceapi
-                      .detectAllFaces(verifyVideo, DETECTOR_OPTIONS)
-                      .withFaceLandmarks()
-                      .withFaceDescriptors();
-
-                    if (finalDetections.length === 0) {
-                      resolve({ success: false, reason: 'Face lost. Please position your face inside the oval again.' });
-                      return;
-                    }
-
-                    const finalDet = finalDetections[0];
-                    const finalBox = finalDet.detection.box;
-                    const finalLms = finalDet.landmarks.positions;
-
-                    // Re-verify centering
-                    const fX = (finalBox.x + finalBox.width / 2) / verifyVideo.videoWidth;
-                    const fY = (finalBox.y + finalBox.height / 2) / verifyVideo.videoHeight;
-                    if (fX < 0.35 || fX > 0.65 || fY < 0.30 || fY > 0.70) {
-                      resolve({ success: false, reason: 'Face lost. Please position your face inside the oval again.' });
-                      return;
-                    }
-
-                    // Re-verify eye state (Reopened)
-                    const fLeftEye = finalLms.slice(36, 42);
-                    const fRightEye = finalLms.slice(42, 48);
-                    const finalEAR = (calculateEAR(fLeftEye) + calculateEAR(fRightEye)) / 2.0;
-
-                    if (finalEAR < openThreshold) {
-                      resolve({ success: false, reason: 'Blink not detected. Please keep looking directly at the camera.' });
-                      return;
-                    }
-
-                    // Verify image sharp and no motion blur
-                    const currentNoseFinal = finalLms[27];
-                    if (lastNosePos.current) {
-                      const finalMove = Math.hypot(currentNoseFinal.x - lastNosePos.current.x, currentNoseFinal.y - lastNosePos.current.y);
-                      if (finalMove > finalBox.width * 0.02) {
-                        resolve({ success: false, reason: 'Face lost. Please position your face inside the oval again.' });
-                        return;
-                      }
-                    }
-
-                    // Proceed to get base64 screen grab
-                    const imageSrc = webcamRef.current?.getScreenshot();
-                    if (!imageSrc) {
-                      resolve({ success: false, reason: 'Face lost. Please position your face inside the oval again.' });
-                      return;
-                    }
-
-                    updateStatus('Face captured successfully.');
-                    resolve({
-                      success: true,
-                      imageSrc,
-                      descriptor: Array.from(finalDet.descriptor)
-                    });
-                  } catch (e) {
-                    resolve({ success: false, reason: 'Blink not detected. The system will continue monitoring automatically.' });
-                  }
-                }, 100);
-                return;
+            } else if (blinkState === 3) {
+              openFrameCount++;
+              if (ear > openThreshold && openFrameCount >= 1) {
+                verified = true;
               }
             }
 
-            // If the user has been waiting for a blink for too long (e.g. 8 seconds since calibration), show friendly help prompt
-            const monitoringDuration = now - (stableSince.current + 1000);
-            if (monitoringDuration > 8000 && blinkState === 0 && !isWarningBlinkFailure) {
-              blinkFailuresCount++;
-              blinkFailureTimestamp = now;
-              updateError('Blink not detected. Please blink slowly and naturally while looking directly at the camera. Keep your head still and avoid moving during the blink.');
-              calibrationEARs.current = []; // Re-calibrate baseline
-              stableSince.current = now; // Reset timer for fresh calibration
+          } else if (activeChallenge.type === 'turn_left') {
+            // Look for yaw shift (user turns head left: nose shifts in video frame)
+            // Handles both normal and mirrored cameras by looking for deviation in either direction
+            const deviation = yawRatio - baseYaw;
+            if (Math.abs(deviation) > 0.08) {
+              challengeSuccessFrames++;
+              if (challengeSuccessFrames >= 3) verified = true;
+            } else {
+              challengeSuccessFrames = 0;
+            }
+
+          } else if (activeChallenge.type === 'turn_right') {
+            const deviation = yawRatio - baseYaw;
+            if (Math.abs(deviation) > 0.08) {
+              challengeSuccessFrames++;
+              if (challengeSuccessFrames >= 3) verified = true;
+            } else {
+              challengeSuccessFrames = 0;
+            }
+
+          } else if (activeChallenge.type === 'open_mouth') {
+            // Mouth Aspect Ratio (MAR) goes above baseline
+            if (mar > baseMAR + 0.18 || mar > 0.35) {
+              challengeSuccessFrames++;
+              if (challengeSuccessFrames >= 3) verified = true;
+            } else {
+              challengeSuccessFrames = 0;
+            }
+
+          } else if (activeChallenge.type === 'smile') {
+            // Smile pulls outer corners outward, increasing smileRatio
+            if (smileRatio > baseSmile + 0.03) {
+              challengeSuccessFrames++;
+              if (challengeSuccessFrames >= 3) verified = true;
+            } else {
+              challengeSuccessFrames = 0;
+            }
+
+          } else if (activeChallenge.type === 'raise_eyebrows') {
+            // Eyebrow distance increases relative to eye center
+            if (eyebrowDist > baseBrows + 0.02) {
+              challengeSuccessFrames++;
+              if (challengeSuccessFrames >= 3) verified = true;
+            } else {
+              challengeSuccessFrames = 0;
             }
           }
 
-          // Continue loop at 40ms interval
+          // Log debugging values requested by user
+          console.log(
+            `[Liveness] challenge:${activeChallenge.type} f:${frameCount} successF:${challengeSuccessFrames}` +
+            ` | EAR:${ear.toFixed(3)} baseEAR:${baseEAR.toFixed(3)}` +
+            ` | MAR:${mar.toFixed(3)} baseMAR:${baseMAR.toFixed(3)}` +
+            ` | Yaw:${yawRatio.toFixed(3)} baseYaw:${baseYaw.toFixed(3)}` +
+            ` | Smile:${smileRatio.toFixed(3)} baseSmile:${baseSmile.toFixed(3)}` +
+            ` | Brows:${eyebrowDist.toFixed(3)} baseBrows:${baseBrows.toFixed(3)}` +
+            ` | blinkState:${blinkState} conf:${smoothedScoreRef.current.toFixed(2)}`
+          );
+
+          // ── 12. Handle verified status ────────────────────────────────────
+          if (verified && phase === 'challenge') {
+            phase = 'capture_align';
+            stableSince.current = null; // reset stability timer for the final capture
+            updateStatus('Liveness verified! Look straight and hold still...');
+            updateError('');
+          }
+
+          if (phase === 'capture_align') {
+            // Wait until the user is looking straight and holding still
+            const noseX     = landmarks[27].x;
+            const faceLeft  = landmarks[0].x;
+            const faceRight = landmarks[16].x;
+            const faceW     = Math.abs(faceRight - faceLeft);
+            const yawRatio  = faceW > 0 ? Math.abs(noseX - faceLeft) / faceW : 0.5;
+
+            // Must look straight (yaw close to 0.5)
+            const isLookingStraight = yawRatio >= 0.40 && yawRatio <= 0.60;
+
+            const currentNose = landmarks[27];
+            let frameMove = 0;
+            if (lastNosePos.current) {
+              frameMove = Math.hypot(
+                currentNose.x - lastNosePos.current.x,
+                currentNose.y - lastNosePos.current.y
+              );
+            }
+            lastNosePos.current = currentNose;
+
+            const isStable = frameMove < box.width * 0.02; // strict stability threshold
+
+            if (!isLookingStraight) {
+              updateError('Please look straight at the camera.');
+              stableSince.current = null;
+            } else if (!isStable) {
+              updateError('Hold still...');
+              stableSince.current = null;
+            } else {
+              updateError('');
+              if (!stableSince.current) stableSince.current = now;
+            }
+
+            if (stableSince.current && (now - stableSince.current) >= 600) {
+              // Stable and looking straight for 600ms! Safe to capture.
+              isRunning = false;
+              phase = 'done';
+              updateStatus('Capturing face biometric...');
+
+              try {
+                // Generate high quality descriptor
+                const rawFinal = await faceapi.detectAllFaces(video, DETECTOR_OPTIONS).withFaceLandmarks().withFaceDescriptors();
+                const finalDets = deduplicateDetections(rawFinal);
+
+                if (finalDets.length === 0) {
+                  resolve({ success: false, reason: 'Face lost during capture. Please try again.' });
+                  return;
+                }
+
+                const fd = finalDets[0];
+                const imageSrc = webcamRef.current?.getScreenshot();
+                if (!imageSrc) {
+                  resolve({ success: false, reason: 'Screenshot failed. Please try again.' });
+                  return;
+                }
+
+                // Development debug logging
+                console.log('[Biometric Debug] Face capture success:');
+                console.log(`  - Embedding dimensions: ${fd.descriptor.length}`);
+                console.log(`  - Face quality score (detector confidence): ${fd.detection.score.toFixed(3)}`);
+                console.log(`  - Face alignment score (yaw deviation): ${Math.abs(yawRatio - 0.5).toFixed(3)}`);
+
+                resolve({ success: true, imageSrc, descriptor: Array.from(fd.descriptor) });
+              } catch (captureErr) {
+                console.error('[Capture error]', captureErr);
+                resolve({ success: false, reason: 'Biometric capture failed.' });
+              }
+              return;
+            }
+          }
+
+          // ── 13. Handle Timeout/Failure ────────────────────────────────────
+          if (now > challengeTimeoutAt) {
+            updateError(`Challenge timed out. Selecting new challenge...`);
+            calibrationEARs.current = [];
+            calibrationMARs.current = [];
+            calibrationYaws.current = [];
+            calibrationSmiles.current = [];
+            calibrationBrows.current = [];
+            stableSince.current = now;
+            phase = 'calib';
+            activeChallenge = null;
+          }
+
           activeTimeout.current = setTimeout(loop, 40);
 
         } catch (err) {
-          console.error('[Liveness Loop Error]', err);
+          console.error('[Liveness Error]', err);
           activeTimeout.current = setTimeout(loop, 40);
         }
       };
@@ -822,13 +824,19 @@ export function useBlinkDetection() {
     setLivenessStatus('');
     setLivenessError('');
     setIsFaceValid(false);
+    lastNosePos.current   = null;
+    stableSince.current   = null;
+    calibrationEARs.current = [];
+    calibrationMARs.current = [];
+    calibrationYaws.current = [];
+    calibrationSmiles.current = [];
+    calibrationBrows.current = [];
+    noseHistory.current   = [];
   }, []);
 
   useEffect(() => {
     return () => {
-      if (activeTimeout.current) {
-        clearTimeout(activeTimeout.current);
-      }
+      if (activeTimeout.current) clearTimeout(activeTimeout.current);
     };
   }, []);
 

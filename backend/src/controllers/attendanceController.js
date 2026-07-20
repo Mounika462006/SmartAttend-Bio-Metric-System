@@ -117,7 +117,7 @@ async function markAttendance(req, res, next) {
        (student_id, attendance_date, status, marked_at, verified_by_face, verified_by_location,
         face_match_score, latitude, longitude, device_info, ip_address, session)
        VALUES (?, ?, ?, NOW(), TRUE, TRUE, ?, ?, ?, ?, ?, ?)`,
-      [studentId, today, statusVal, matchScore, latitude, longitude, req.headers['user-agent'], req.ip, sessionLabel]
+      [studentId, today, statusVal, matchScore, latitude, longitude, JSON.stringify({ userAgent: req.headers['user-agent'] || 'Unknown' }), req.ip, sessionLabel]
     );
 
     // 6. Log success
@@ -184,7 +184,7 @@ async function getAttendanceStats(req, res, next) {
     // Get total present days (present = 1.0, halfday = 0.5), grouped and capped at 1.0 per calendar day
     const [presentRows] = await db.query(
       `SELECT COALESCE(SUM(daily_present), 0) AS present FROM (
-         SELECT attendance_date, LEAST(1.0, SUM(CASE WHEN status = 'present' THEN 1 WHEN status = 'halfday' THEN 0.5 ELSE 0 END)) AS daily_present
+         SELECT attendance_date, LEAST(1.0, SUM(CASE WHEN status::text = 'present' THEN 1.0 WHEN status::text IN ('halfday', 'half_day') THEN 0.5 ELSE 0 END)) AS daily_present
          FROM attendance
          WHERE student_id = ?
          GROUP BY attendance_date
@@ -306,4 +306,6 @@ async function getDepartmentAttendance(req, res, next) {
   }
 }
 
-module.exports = { markAttendance, getAttendanceHistory, getAttendanceStats, getDepartmentAttendance };
+module.exports = { markAttendance, getAttendanceHistory, getAttendanceStats, getDepartmentAttendance 
+}
+;

@@ -79,9 +79,18 @@ export default function StudentDashboard() {
   useEffect(() => {
     const now = new Date();
     Promise.all([
-      attendanceAPI.getStats(),
-      attendanceAPI.getHistory({ month: now.getMonth() + 1, year: now.getFullYear() }),
-      generalAPI.getNotifications(),
+      attendanceAPI.getStats().catch(err => {
+        console.error('[Dashboard Error] Failed to fetch stats:', err);
+        return { data: { data: null } };
+      }),
+      attendanceAPI.getHistory({ month: now.getMonth() + 1, year: now.getFullYear() }).catch(err => {
+        console.error('[Dashboard Error] Failed to fetch history:', err);
+        return { data: { data: [] } };
+      }),
+      generalAPI.getNotifications().catch(err => {
+        console.error('[Dashboard Error] Failed to fetch notifications:', err);
+        return { data: { data: { notifications: [] } } };
+      }),
     ]).then(([s, h, n]) => {
       setStats(s.data.data);
       setHistory(h.data.data || []);
@@ -120,7 +129,7 @@ export default function StudentDashboard() {
     { name: 'Absent', value: stats.absent },
     { name: 'Leave', value: stats.leave_days },
     { name: 'Holidays', value: stats.holidays },
-  ] : [];
+  ].filter(d => d.value > 0) : [];
 
   if (loading) {
     return (

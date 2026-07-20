@@ -12,7 +12,7 @@ async function startServer() {
     console.error('[DB Warning] Server will start and retry connecting during incoming requests.');
   }
 
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log('');
     console.log('  ╔═══════════════════════════════════════════════╗');
     console.log('  ║   Smart Face Biometric Attendance System       ║');
@@ -22,6 +22,18 @@ async function startServer() {
     console.log(`  Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`  Health check: http://localhost:${PORT}/api/health`);
     console.log('');
+  });
+
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`\n[Server Error] Port ${PORT} is already in use.`);
+      console.error(`[Server Error] Another instance of the backend is already running.`);
+      console.error(`[Server Fix]   Run this command to kill it:  Stop-Process -Id (Get-NetTCPConnection -LocalPort ${PORT}).OwningProcess -Force`);
+      console.error(`[Server Fix]   Or use:  netstat -ano | findstr :${PORT}  then  taskkill /F /PID <PID>`);
+      process.exit(1);
+    } else {
+      throw err;
+    }
   });
 }
 

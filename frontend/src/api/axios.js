@@ -1,9 +1,9 @@
 import axios from 'axios';
 
-// For development: use Vite proxy to forward to backend (defined in vite.config.js)
-// For production/mobile: replace with your backend IP (e.g., http://10.32.115.75:5000/api)
+// For development: uses Vite proxy to forward to backend (default: '/api')
+// For production: reads VITE_API_URL from environment variables (e.g., https://api.yourdomain.com)
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: import.meta.env.VITE_API_URL || '/api',
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',

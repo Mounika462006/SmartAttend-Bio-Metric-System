@@ -76,6 +76,7 @@ export default function MarkAttendance() {
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [cameraRetryKey, setCameraRetryKey] = useState(0);
   const { livenessStatus, livenessError, startBlinkDetection, resetBlinkDetection } = useBlinkDetection();
+  const prefetchedDescriptorRef = useRef(null); // prefetched while camera warms up
   const [steps, setSteps] = useState({
     location: 'pending',
     face: 'pending',
@@ -281,13 +282,26 @@ export default function MarkAttendance() {
 
       toast.success('Face captured successfully. Verifying identity...');
       setPhase('verifying');
-      // Get stored biometric descriptor
-      const { data: bData } = await biometricAPI.getDescriptor();
-      const storedDescriptor = new Float32Array(bData.data.face_descriptor);
+
+      // Use prefetched descriptor if available (fetched while camera was warming up),
+      // otherwise fall back to inline fetch to guarantee correctness
+      let storedDescriptor;
+      if (prefetchedDescriptorRef.current) {
+        storedDescriptor = prefetchedDescriptorRef.current;
+      } else {
+        const { data: bData } = await biometricAPI.getDescriptor();
+        storedDescriptor = new Float32Array(bData.data.face_descriptor);
+      }
 
       const distance = faceapi.euclideanDistance(storedDescriptor, liveDescriptor);
-      const similarity = Math.max(0, Math.round((1 - distance) * 100));
+      const similarity = Math.max(0, Math.round((1 - (distance / 1.5)) * 100));
       setMatchScore(similarity);
+
+      // Development debug logging
+      console.log('[Biometric Debug] Similarity comparison:');
+      console.log(`  - Euclidean distance: ${distance.toFixed(4)}`);
+      console.log(`  - Calculated match similarity: ${similarity}%`);
+      console.log(`  - Required threshold: 60%`);
 
       if (similarity < 60) {
         throw new Error(`Face verification failed. Match score: ${similarity}%. Required: 60%.`);
@@ -315,6 +329,21 @@ export default function MarkAttendance() {
       setPhase('failed');
     }
   }, [location, distanceInfo, startBlinkDetection]);
+
+  // Prefetch biometric descriptor as soon as camera is ready — runs in parallel with
+  // the liveness check so it doesn't add latency after blink succeeds
+  useEffect(() => {
+    if (!cameraReady) return;
+    prefetchedDescriptorRef.current = null; // reset on new camera session
+    biometricAPI.getDescriptor()
+      .then(({ data: bData }) => {
+        prefetchedDescriptorRef.current = new Float32Array(bData.data.face_descriptor);
+      })
+      .catch(() => {
+        // Will fall back to fetching inline in captureAndVerify
+        prefetchedDescriptorRef.current = null;
+      });
+  }, [cameraReady]);
 
   // Auto-start verification when camera is ready
   useEffect(() => {

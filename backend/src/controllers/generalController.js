@@ -57,7 +57,7 @@ async function getStudentProfile(req, res, next) {
   try {
     const studentId = req.user.id;
     const [rows] = await db.query(
-      `SELECT s.id, s.student_id, s.name, s.email, s.phone_number AS mobile, s.year, s.semester, s.branch,
+      `SELECT s.id, s.student_id, s.register_number, s.name, s.email, s.phone_number AS mobile, s.year, s.semester, s.branch,
               s.status, s.biometric_registered, s.profile_photo_url AS profile_image_url, s.created_at,
               d.name AS department, d.code AS department_code
        FROM students s

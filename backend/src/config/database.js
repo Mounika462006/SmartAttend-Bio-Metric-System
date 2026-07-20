@@ -11,6 +11,11 @@ function getPool() {
         rejectUnauthorized: false
       }
     });
+
+    // Gracefully handle unexpected connection errors on idle clients to prevent backend process crashes
+    pool.on('error', (err) => {
+      console.error('[DB Pool Warning] Unexpected error on idle database client:', err.message);
+    });
   }
   return pool;
 }
