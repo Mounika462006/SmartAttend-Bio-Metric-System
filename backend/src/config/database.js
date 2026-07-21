@@ -6,8 +6,9 @@ function getPool() {
   if (!pool) {
     let connectionString = process.env.DATABASE_URL;
 
-    // Auto-detect and rewrite Supabase pooler (6543) to direct connection (5432)
-    if (connectionString && connectionString.includes('pooler.supabase.com:6543')) {
+    // Auto-detect and rewrite Supabase pooler (6543) to direct connection (5432) ONLY in production.
+    // In local development, we keep using the pooler port 6543 to support IPv4-only networks (as Supabase's direct host is IPv6-only).
+    if (process.env.NODE_ENV === 'production' && connectionString && connectionString.includes('pooler.supabase.com:6543')) {
       try {
         const parsedUrl = new URL(connectionString);
         const username = parsedUrl.username;
@@ -16,7 +17,7 @@ function getPool() {
           parsedUrl.host = `db.${projectRef}.supabase.co`;
           parsedUrl.port = '5432';
           connectionString = parsedUrl.toString();
-          console.log(`[DB Config] Auto-redirected pooled connection (6543) to direct host (5432): db.${projectRef}.supabase.co`);
+          console.log(`[DB Config] Production Mode: Auto-redirected pooled connection (6543) to direct host (5432): db.${projectRef}.supabase.co`);
         }
       } catch (err) {
         console.error('[DB Config Warning] Failed to parse DATABASE_URL for direct connection correction:', err.message);
@@ -27,11 +28,7 @@ function getPool() {
       connectionString,
       ssl: {
         rejectUnauthorized: false
-      },
-      connectionTimeoutMillis: 10000, // Wait up to 10 seconds for a connection
-      idleTimeoutMillis: 30000,       // Close idle clients after 30 seconds
-      max: 20,                         // Maintain up to 20 clients in the pool
-      keepAlive: true                  // Enable TCP Keep-Alive to maintain socket connection
+      }
     });
 
     // Gracefully handle unexpected connection errors on idle clients to prevent backend process crashes
