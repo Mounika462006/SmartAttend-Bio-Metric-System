@@ -9,7 +9,11 @@ function getPool() {
       connectionString,
       ssl: {
         rejectUnauthorized: false
-      }
+      },
+      connectionTimeoutMillis: 10000, // Wait up to 10 seconds for a connection
+      idleTimeoutMillis: 30000,       // Close idle clients after 30 seconds
+      max: 20,                         // Maintain up to 20 clients in the pool
+      keepAlive: true                  // Enable TCP Keep-Alive to maintain socket connection
     });
 
     // Gracefully handle unexpected connection errors on idle clients to prevent backend process crashes
