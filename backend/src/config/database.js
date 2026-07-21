@@ -4,7 +4,25 @@ let pool;
 
 function getPool() {
   if (!pool) {
-    const connectionString = process.env.DATABASE_URL;
+    let connectionString = process.env.DATABASE_URL;
+
+    // Auto-detect and rewrite Supabase pooler (6543) to direct connection (5432)
+    if (connectionString && connectionString.includes('pooler.supabase.com:6543')) {
+      try {
+        const parsedUrl = new URL(connectionString);
+        const username = parsedUrl.username;
+        if (username && username.startsWith('postgres.')) {
+          const projectRef = username.split('.')[1];
+          parsedUrl.host = `db.${projectRef}.supabase.co`;
+          parsedUrl.port = '5432';
+          connectionString = parsedUrl.toString();
+          console.log(`[DB Config] Auto-redirected pooled connection (6543) to direct host (5432): db.${projectRef}.supabase.co`);
+        }
+      } catch (err) {
+        console.error('[DB Config Warning] Failed to parse DATABASE_URL for direct connection correction:', err.message);
+      }
+    }
+
     pool = new Pool({
       connectionString,
       ssl: {
