@@ -88,7 +88,7 @@ function convertQuery(sql, params = []) {
   return { sql: newSql, params: pgParams };
 }
 
-async function query(sql, params = []) {
+async function query(sql, params = [], retries = 2) {
   const client = getPool();
   let { sql: pgSql, params: pgParams } = convertQuery(sql, params);
 
@@ -100,28 +100,43 @@ async function query(sql, params = []) {
     pgSql += ' RETURNING id';
   }
 
-  try {
-    const res = await client.query(pgSql, pgParams);
+  for (let attempt = 1; attempt <= retries + 1; attempt++) {
+    try {
+      const res = await client.query(pgSql, pgParams);
 
-    if (isSelect) {
-      // In mysql2, query returns [rows, fields]
-      return [res.rows, res.fields];
-    } else {
-      // In mysql2, non-select queries return [OkPacket, null]
-      const insertId = res.rows && res.rows.length > 0 ? (res.rows[0].id || res.rows[0].insertid) : null;
-      const mockResult = {
-        insertId: insertId ? Number(insertId) : null,
-        affectedRows: res.rowCount,
-        warningCount: 0,
-        message: '',
-        protocol41: true,
-        changedRows: res.rowCount
-      };
-      return [mockResult, null];
+      if (isSelect) {
+        // In mysql2, query returns [rows, fields]
+        return [res.rows, res.fields];
+      } else {
+        // In mysql2, non-select queries return [OkPacket, null]
+        const insertId = res.rows && res.rows.length > 0 ? (res.rows[0].id || res.rows[0].insertid) : null;
+        const mockResult = {
+          insertId: insertId ? Number(insertId) : null,
+          affectedRows: res.rowCount,
+          warningCount: 0,
+          message: '',
+          protocol41: true,
+          changedRows: res.rowCount
+        };
+        return [mockResult, null];
+      }
+    } catch (err) {
+      const isTransient = err.code === 'ECONNRESET' || 
+                          err.message.includes('ECONNRESET') || 
+                          err.code === 'EPIPE' || 
+                          err.message.includes('socket hung up') ||
+                          err.message.includes('connection reset');
+
+      if (isTransient && attempt <= retries) {
+        console.warn(`[DB Warning] Transient connection issue (${err.message}). Retrying query (attempt ${attempt}/${retries})...`);
+        // Wait a short delay before retrying (e.g., 300ms, then 600ms)
+        await new Promise(resolve => setTimeout(resolve, 300 * attempt));
+        continue;
+      }
+
+      console.error(`[DB Query Error] SQL: ${pgSql} | Error: ${err.message}`);
+      throw err;
     }
-  } catch (err) {
-    console.error(`[DB Query Error] SQL: ${pgSql} | Error: ${err.message}`);
-    throw err;
   }
 }
 
