@@ -3,6 +3,6 @@ dist
 .env
 backend/.env
 backend/src/uploads/
-backend/uploads/
+backend/uploads/ 
 *.log
 .DS_Store
