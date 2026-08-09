@@ -8,7 +8,7 @@ import {
   CalendarDays, BarChart3, Users, Settings, FileSearch,
   CheckSquare, AlertTriangle
 } from 'lucide-react';
-
+   
 const studentNav = [
   { label: 'Dashboard', icon: LayoutDashboard, to: '/student/dashboard' },
   { label: 'Mark Attendance', icon: CalendarCheck, to: '/student/attendance' },
