@@ -14,7 +14,7 @@ async function testAll() {
   
   for (const region of regions) {
     const host = `aws-0-${region}.pooler.supabase.com`;
-    // We try port 5432 first, as it's the standard port
+    // We try port 5432 first, as it's  the standard port
     const connectionString = `postgres://postgres.hoijyrvvshbidnqrsqzk:${encodedPassword}@${host}:5432/postgres`;
     
     console.log(`[Test] Region: ${region} (${host}) on port 5432...`);
