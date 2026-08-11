@@ -17,7 +17,7 @@ async function runMigration() {
 
   try {
     await client.connect();
-    console.log('[Migration] Connected. Starting alterations...');
+    console.log('[Migration] Connected. Starting alterations...'); 
 
     // 1. Alter holidays columns
     console.log('[Migration] Altering holidays columns...');
