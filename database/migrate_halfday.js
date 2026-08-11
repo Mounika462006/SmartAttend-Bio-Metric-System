@@ -11,7 +11,7 @@ async function run() {
     console.log('[Migration] Checking and altering attendance status ENUM...');
     
     // In PostgreSQL, we can use ALTER TYPE ADD VALUE IF NOT EXISTS
-    // (Note: this cannot run inside a transaction block in some pg versions, but it runs fine individually)
+    // (Note: this cannot run inside a transaction block in some pg versions, but it runs fine individually) 
     try {
       await db.query(`ALTER TYPE attendance_status ADD VALUE IF NOT EXISTS 'halfday'`);
       console.log('[Migration] Checked and updated attendance_status ENUM.');
