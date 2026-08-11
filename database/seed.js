@@ -15,7 +15,7 @@ async function seedAdmin() {
   const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
   const adminName = 'System Administrator';
 
-  console.log('[Seed] Checking for existing admin account...');
+  console.log('[Seed] Checking for existing admin account...'); 
 
   const [existing] = await db.query('SELECT id FROM admins WHERE email = ?', [adminEmail]);
   if (existing.length > 0) {
