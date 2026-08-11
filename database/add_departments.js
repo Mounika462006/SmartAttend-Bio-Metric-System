@@ -10,7 +10,7 @@ const categoriesAndDepts = [
   // Engineering & Technology
   { name: 'Artificial Intelligence and Data Science (AI & DS)', code: 'AI-DS', category: 'engineering' },
   { name: 'Computer Science and Engineering (CSE)', code: 'CSE', category: 'engineering' },
-  { name: 'Computer Science and Engineering (Artificial Intelligence)', code: 'CSE-AI', category: 'engineering' },
+  { name: 'Computer Science and Engineering (Artificial Intelligence)', code: 'CSE-AI', category: 'engineering' }, 
   { name: 'Computer Science and Engineering (Cyber Security)', code: 'CSE-CS', category: 'engineering' },
   { name: 'Information Technology (IT)', code: 'IT', category: 'engineering' },
   { name: 'Electronics and Communication Engineering (ECE)', code: 'ECE', category: 'engineering' },
