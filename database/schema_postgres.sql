@@ -16,7 +16,7 @@ DROP TABLE IF EXISTS geo_fencing_settings CASCADE;
 DROP TABLE IF EXISTS biometric_data CASCADE;
 DROP TABLE IF EXISTS students CASCADE;
 DROP TABLE IF EXISTS staff CASCADE;
-DROP TABLE IF EXISTS admins CASCADE;
+DROP TABLE IF EXISTS admins CASCADE; 
 DROP TABLE IF EXISTS departments CASCADE;
 
 -- Drop custom types if they exist
@@ -49,7 +49,7 @@ CREATE TABLE departments (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
+ 
 -- ============================================================
 -- TABLE: admins
 -- ============================================================
