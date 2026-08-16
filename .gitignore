@@ -6,3 +6,4 @@ backend/src/uploads/
 backend/uploads/ 
 *.log
 .DS_Store
+
