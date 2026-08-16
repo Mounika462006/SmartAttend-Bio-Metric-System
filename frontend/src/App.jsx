@@ -8,7 +8,7 @@ import DashboardLayout from './layouts/DashboardLayout';
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
 
-// Student Pages
+// Student Pages 
 import StudentDashboard from './pages/student/StudentDashboard';
 import MarkAttendance from './pages/student/MarkAttendance';
 import AttendanceHistory from './pages/student/AttendanceHistory';
