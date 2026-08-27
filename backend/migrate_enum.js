@@ -18,7 +18,7 @@ async function run() {
     await pool.query(sql);
     console.log('[Migration] Success! Enum values added.');
   } catch (err) {
-    console.error('[Migration] Failed:', err.message);
+    console.error('[Migration] Failed:',  err.message);
   } finally {
     await pool.end();
   }
