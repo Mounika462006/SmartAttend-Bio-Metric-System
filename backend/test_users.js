@@ -8,7 +8,7 @@ async function check() {
     for (const a of admins) {
       const match = await bcrypt.compare('admin123', a.password_hash);
       console.log(`Admin ${a.email} match for "admin123":`, match);
-    }
+    } 
 
     const [staff] = await db.query('SELECT email, password_hash FROM staff');
     for (const s of staff) {
