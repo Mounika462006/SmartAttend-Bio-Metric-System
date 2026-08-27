@@ -4,7 +4,7 @@ require('dotenv').config();
 const sql = `
 -- Add approved and rejected values to student_status enum if they don't exist
 ALTER TYPE student_status ADD VALUE IF NOT EXISTS 'approved';
-ALTER TYPE student_status ADD VALUE IF NOT EXISTS 'rejected';
+ALTER TYPE student_status ADD VALUE IF NOT EXISTS 'rejected'; 
 `;
 
 async function run() {
