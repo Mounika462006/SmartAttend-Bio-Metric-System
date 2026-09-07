@@ -18,7 +18,7 @@ export default function Topbar({ collapsed, setCollapsed }) {
 
   const handleLogout = async () => {
     await logout();
-    navigate('/login');
+    navigate('/login'); 
   };
 
   const roleBadge = {
