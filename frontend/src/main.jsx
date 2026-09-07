@@ -19,7 +19,7 @@ createRoot(document.getElementById('root')).render(
             borderRadius: '10px',
             padding: '12px 16px',
             boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
-          },
+          }, 
           success: {
             iconTheme: { primary: '#10b981', secondary: '#fff' },
           },
