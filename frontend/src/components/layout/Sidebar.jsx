@@ -15,7 +15,7 @@ const studentNav = [
   { label: 'Attendance History', icon: ClipboardList, to: '/student/history' },
   { label: 'Leave Application', icon: FileText, to: '/student/leave' },
   { label: 'Biometric Setup', icon: ShieldCheck, to: '/student/biometric' },
-  { label: 'Notifications', icon: Bell, to: '/student/notifications' },
+  { label: 'Notifications', icon: Bell, to: '/student/notifications' }, 
 ];
 
 const staffNav = [
