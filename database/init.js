@@ -14,7 +14,7 @@ async function run() {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
     console.error('[Init] Error: DATABASE_URL environment variable is missing.');
-    process.exit(1);
+    process.exit(1); 
   }
 
   console.log('[Init] Connecting to Supabase PostgreSQL database...');
