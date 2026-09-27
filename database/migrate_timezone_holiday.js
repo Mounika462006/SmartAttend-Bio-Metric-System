@@ -15,7 +15,7 @@ async function runMigration() {
     ssl: { rejectUnauthorized: false }
   });
 
-  try {
+  try { 
     await client.connect();
     console.log('[Migration] Connected. Starting alterations...'); 
 
