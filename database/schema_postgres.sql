@@ -2,7 +2,7 @@
 -- Smart Face Biometric Attendance System - PostgreSQL Schema
 -- Compatible with Supabase PostgreSQL
 -- ============================================================
-
+ 
 -- Drop tables first if they exist to avoid constraint/type reference errors
 DROP TABLE IF EXISTS security_logs CASCADE;
 DROP TABLE IF EXISTS attendance_logs CASCADE;
