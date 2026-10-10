@@ -12,7 +12,7 @@ const bcrypt = require('bcryptjs');
 
 async function run() {
   const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
+  if (!connectionString) { 
     console.error('[Init] Error: DATABASE_URL environment variable is missing.');
     process.exit(1); 
   }
