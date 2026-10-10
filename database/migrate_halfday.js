@@ -14,7 +14,7 @@ async function run() {
     // (Note: this cannot run inside a transaction block in some pg versions, but it runs fine individually) 
     try {
       await db.query(`ALTER TYPE attendance_status ADD VALUE IF NOT EXISTS 'halfday'`);
-      console.log('[Migration] Checked and updated attendance_status ENUM.');
+      console.log('[Migration] Checked and updated attendance_status ENUM.'); 
     } catch (enumErr) {
       // If it already exists or fails, log it but keep going
       console.log('[Migration] Note on ENUM update:', enumErr.message);
